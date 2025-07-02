@@ -1,0 +1,17 @@
+/* Basic Reset and Body Styling */
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent scrollbars */
+    height: 100%;
+    width: 100%;
+    background-color: #000; /* Black background */
+}
+
+/* Canvas takes up the full space */
+canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+}

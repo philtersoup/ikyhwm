@@ -1,29 +1,61 @@
-import { simpleTunnel, perspectiveTunnel, spiralVortex, shapeForm, webglLiquidDisplace, imageCollage } from './effects.js';
+import { spiralVortex, simpleTunnel, shapeForm, bigBoldText, passThrough, postLiquidDisplace } from './effects.js';
 
-const allEffects = { simpleTunnel, perspectiveTunnel, spiralVortex, webglLiquidDisplace, shapeForm, imageCollage };
-const timeline = [ { startTime: 0,  endTime: 999, effect: 'webglLiquidDisplace' } ]; // Changed to use the new WebGL effect
+// All available effects are registered here
+const allEffects = {
+    // Base (2D) effects
+    spiralVortex,
+    simpleTunnel,
+    shapeForm,
+    bigBoldText, // Add it here
+
+    // Post-processing (WebGL) effects
+    passThrough,
+    postLiquidDisplace,
+};
+
+// This timeline showcases different combinations of base and post effects
+const timeline = [
+    { startTime: 0,  endTime: 999, baseEffect: 'shapeForm', postEffect: 'passThrough' }
+];
 const getCurrentScene = time => timeline.find(scene => time >= scene.startTime && time < scene.endTime);
 
-const canvas = document.getElementById('collage-canvas');
-// We no longer get a context here; the effect module will handle it.
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+const mainCanvas = document.getElementById('collage-canvas');
+mainCanvas.width = window.innerWidth;
+mainCanvas.height = window.innerHeight;
 
-let lyrics = [], startTime = 0, currentLyric = "", activeScene = null;
-const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = window.innerWidth;
+offscreenCanvas.height = window.innerHeight;
+
+let lyrics = [], startTime = 0, currentLyric = "";
+let activeBase = null, activePost = null;
+const mouse = { x: mainCanvas.width / 2, y: mainCanvas.height / 2 };
 
 function animate() {
     const elapsedSeconds = (performance.now() - startTime) / 1000;
     const scene = getCurrentScene(elapsedSeconds);
-    
-    if (scene && (!activeScene || scene.effect !== activeScene.name)) {
-        activeScene?.module.cleanup();
-        const module = allEffects[scene.effect];
+
+    if (scene && (!activeBase || scene.baseEffect !== activeBase.name)) {
+        activeBase?.module.cleanup();
+        const module = allEffects[scene.baseEffect];
         if (module) {
-            activeScene = { name: scene.effect, module: module };
-            // Pass the canvas element to setup. The module will get its own context.
-            activeScene.module.setup(canvas, currentLyric, scene.options);
-            console.log(`Switched to effect: ${activeScene.name}`);
+            activeBase = { name: scene.baseEffect, module: module };
+            activeBase.module.setup(offscreenCanvas, currentLyric);
+            console.log(`Switched base effect to: ${activeBase.name}`);
+        } else {
+            activeBase = null;
+        }
+    }
+
+    if (scene && (!activePost || scene.postEffect !== activePost.name)) {
+        activePost?.module.cleanup();
+        const module = allEffects[scene.postEffect];
+        if (module) {
+            activePost = { name: scene.postEffect, module: module };
+            activePost.module.setup(mainCanvas);
+            console.log(`Switched post effect to: ${activePost.name}`);
+        } else {
+            activePost = null;
         }
     }
 
@@ -31,19 +63,17 @@ function animate() {
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
         currentLyric = newText;
-        // The setup/update lyric logic is now handled within the effect module
+        activeBase?.module.onLyricChange?.(currentLyric);
     }
 
-    // The update call no longer needs ctx, as the effect manages its own context.
-    if (activeScene) {
-        activeScene.module.update(mouse, performance.now(), currentLyric);
-    }
+    activeBase?.module.update(mouse, performance.now(), currentLyric);
+    activePost?.module.update(offscreenCanvas, mouse, performance.now());
     
     requestAnimationFrame(animate);
 }
 
 async function init() {
-    canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+    mainCanvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
     try {
         const response = await fetch('assets/lyrics.srt');
         lyrics = parseSRT(await response.text());

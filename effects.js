@@ -114,8 +114,166 @@ export const postLiquidDisplace = {
 };
 
 // =================================================================
-// BASE (2D Canvas) EFFECTS
+// BACKGROUND EFFECT
 // =================================================================
+export const imageCollage = {
+    ctx: null,
+    images: [],
+    loaded: false,
+    sliceCache: [],
+    cacheSize: 20,
+    lastDrawTime: 0,
+    imageUrls: [
+        'assets/images/DSCF6874.JPG', 'assets/images/DSCF7020.JPG',
+        'assets/images/DSCF7027.JPG', 'assets/images/DSCF7032.JPG',
+        'assets/images/DSCF7142.JPG', 'assets/images/DSCF7151.JPG',
+        'assets/images/DSCF8081_1.jpg', 'assets/images/DSCF8125.JPG',
+        'assets/images/DSCF8129.JPG', 'assets/images/DSCF8196.JPG',
+        'assets/images/DSCF8207.JPG', 'assets/images/DSCF8256.JPG',
+        'assets/images/DSCF8272.JPG',
+    ],
+
+    async setup(canvas) {
+        this.ctx = canvas.getContext('2d');
+        this.sliceCache = [];
+        try {
+            this.images = await Promise.all(this.imageUrls.map(url => this.loadImage(url)));
+            this.loaded = true;
+            console.log('All images loaded and resized in memory!');
+        } catch (error) {
+            console.error("Failed to load images for collage:", error);
+        }
+    },
+
+    // --- UPDATED loadImage FUNCTION ---
+    loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                // --- This is the new resizing logic ---
+                const maxDim = 1200; // Resize images to a max of 1200px on their longest side
+                const scale = Math.min(maxDim / img.width, maxDim / img.height);
+                const newWidth = img.width * scale;
+                const newHeight = img.height * scale;
+
+                const offscreenCanvas = document.createElement('canvas');
+                offscreenCanvas.width = newWidth;
+                offscreenCanvas.height = newHeight;
+                const offscreenCtx = offscreenCanvas.getContext('2d');
+                
+                // Draw the huge image onto the small canvas, effectively creating a resized copy
+                offscreenCtx.drawImage(img, 0, 0, newWidth, newHeight);
+
+                // From now on, we use the small canvas, not the original huge image
+                resolve(offscreenCanvas);
+            };
+            img.onerror = () => reject(`Failed to load image at: ${url}`);
+            img.src = url;
+        });
+    },
+
+    onLyricChange() {},
+
+    // --- The update function does not need to change ---
+    update(mouse, time) {
+        if (!this.ctx || !this.loaded || this.images.length === 0) return;
+
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const drawInterval = 50;
+        if (time - this.lastDrawTime < drawInterval) {
+            return;
+        }
+        this.lastDrawTime = time;
+
+        let slice;
+        const shouldRepeat = this.sliceCache.length > 0 && Math.random() < 0.4;
+
+        if (shouldRepeat) {
+            slice = this.sliceCache[Math.floor(Math.random() * this.sliceCache.length)];
+        } else {
+            // This now uses the small, resized canvas as the source image
+            const img = this.images[Math.floor(Math.random() * this.images.length)];
+            
+            const sliceWidth = img.width * (Math.random() * 0.2 + 0.5);
+            const sliceHeight = img.height * (Math.random() * 0.2 + 0.5);
+            const sx = Math.random() * (img.width - sliceWidth);
+            const sy = Math.random() * (img.height - sliceHeight);
+
+            slice = { img, sx, sy, sliceWidth, sliceHeight };
+
+            this.sliceCache.push(slice);
+            if (this.sliceCache.length > this.cacheSize) {
+                this.sliceCache.shift();
+            }
+        }
+
+        const dx = Math.random() * canvas.width;
+        const dy = Math.random() * canvas.height;
+        const dWidth = slice.sliceWidth * 0.5;
+        const dHeight = slice.sliceHeight * 0.5;
+
+        ctx.globalAlpha = Math.random() * 0.5 + 0.5;
+        ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sliceWidth, slice.sliceHeight, dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
+        ctx.globalAlpha = 1.0;
+    },
+    
+    cleanup() {
+        this.ctx = null;
+        this.images = [];
+        this.sliceCache = [];
+        this.loaded = false;
+    }
+};
+
+// =================================================================
+// FOREGROUND (TEXT) EFFECTS
+// =================================================================
+
+export const cleanTiledText = {
+    ctx: null,
+    setup(canvas) { this.ctx = canvas.getContext('2d'); },
+    onLyricChange() {},
+    update(mouse, time, lyric) {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "CLEAN";
+        const fontSize = 100;
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const textMetrics = ctx.measureText(textToRender);
+        const spacingX = textMetrics.width * 1.25;
+        const spacingY = fontSize * 1.5;
+        if (spacingX === 0) return;
+
+        ctx.save();
+        const skewX = (mouse.x - canvas.width / 2) * 0.001;
+        const skewY = (mouse.y - canvas.height / 2) * 0.001;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.transform(1, skewY, skewX, 1, 0, 0);
+        ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let y = spacingY / 2; y < canvas.height; y += spacingY) {
+            for (let x = spacingX / 2; x < canvas.width; x += spacingX) {
+                ctx.fillText(textToRender, x, y);
+            }
+        }
+        ctx.restore();
+    },
+    cleanup() { this.ctx = null; }
+};
 
 export const spiralVortex = {
     ctx: null, rings: [], fov: 400, ringRadius: 700,
@@ -129,9 +287,15 @@ export const spiralVortex = {
             });
         }
     },
-    update(mouse, time) {
+    update(mouse, time, lyric) {
         const ctx = this.ctx; if (!ctx) return;
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        if(this.currentLyric !== lyric){
+             this.onLyricChange(lyric);
+             this.currentLyric = lyric;
+        }
+
         const mouseXNorm = (mouse.x - window.innerWidth/2) / (window.innerWidth/2);
         this.rings.forEach(r => {
             const waveOffset = Math.sin(time*0.002 + r.ringIndex*0.5) * 100;
@@ -151,18 +315,29 @@ export const spiralVortex = {
         });
         ctx.globalAlpha = 1.0;
     },
-    createRingCanvas(text, i) {
+    createRingCanvas(text, ringIndex) {
         const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
-        const size = this.ringRadius*2; canvas.width=size; canvas.height=size;
-        ctx.font = `bold ${60+(i*4)}px Arial, sans-serif`;
+        const size = this.ringRadius * 2; canvas.width = size; canvas.height = size;
+        const fontSize = 60 + (ringIndex * 4);
+        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
         Object.assign(ctx, {fillStyle:'white',textAlign:'center',textBaseline:'middle',shadowBlur:3,shadowColor:'rgba(0,0,0,0.5)'});
-        ctx.translate(this.ringRadius, this.ringRadius); ctx.rotate(i*0.1);
-        const words = (text||"SPIRAL").toUpperCase().split(' ').filter(Boolean);
+        ctx.translate(this.ringRadius, this.ringRadius); ctx.rotate(ringIndex * 0.1);
+        const words = (text || "SPIRAL").toUpperCase().split(' ').filter(Boolean);
         if(!words.length) return canvas;
-        const textWidth=ctx.measureText(words.join(' ')).width, reps=Math.max(1,Math.min(Math.floor(2*Math.PI*(this.ringRadius*0.85)/(textWidth*1.5)),6));
-        for(let j=0; j<reps; j++){
-            ctx.save(); ctx.rotate(j/reps * Math.PI*2);
-            words.forEach(word => { ctx.fillText(word, 0, -this.ringRadius*0.85); ctx.rotate(ctx.measureText(word+" ").width / (this.ringRadius*0.85)); });
+        const textWidth = ctx.measureText(words.join(' ')).width;
+        const reps = Math.max(1, Math.min(Math.floor(2*Math.PI*(this.ringRadius*0.85)/(textWidth*1.5)), 6));
+        for(let j = 0; j < reps; j++){
+            ctx.save();
+            ctx.rotate(j/reps * Math.PI * 2);
+            let currentAngle = 0;
+            words.forEach(word => {
+                const wordWidth = ctx.measureText(word).width;
+                ctx.save();
+                ctx.rotate(currentAngle / (this.ringRadius*0.85));
+                ctx.fillText(word, 0, -this.ringRadius*0.85);
+                ctx.restore();
+                currentAngle += wordWidth + ctx.measureText(" ").width;
+            });
             ctx.restore();
         }
         return canvas;
@@ -175,16 +350,22 @@ export const simpleTunnel = {
     setup(canvas, text) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); },
     onLyricChange(lyric) {
         this.rows = [];
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "          ";
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "TUNNEL";
         const uppercaseText = (textToRender.toUpperCase() + " ").repeat(15);
         const numRows = 30; const rowHeight = window.innerHeight / numRows;
         for (let i = 0; i < numRows + 1; i++) {
             this.rows.push({ text: uppercaseText, y: i * rowHeight, direction: (i % 2 === 0) ? 1 : -1 });
         }
     },
-    update(mouse, time) {
+    update(mouse, time, lyric) {
         const ctx = this.ctx; if(!ctx) return;
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        if (this.currentLyric !== lyric) {
+            this.onLyricChange(lyric);
+            this.currentLyric = lyric;
+        }
+
         const timeOffset = time * 0.03;
         this.rows.forEach(row => {
             const distY = row.y - mouse.y;
@@ -214,9 +395,11 @@ export const shapeForm = {
         ];
     },
     update(mouse, time, lyric) {
-        const ctx = this.ctx; if (!ctx || !lyric || lyric.trim() === "") return;
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        const uppercaseText = lyric.toUpperCase() + " ";
+        const ctx = this.ctx; if (!ctx) return;
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "SHAPES";
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        
+        const uppercaseText = textToRender.toUpperCase() + " ";
         ctx.fillStyle = 'white'; ctx.font = 'bold 30px sans-serif';
         const textWidth = ctx.measureText(uppercaseText).width;
         if (textWidth === 0) return;
@@ -235,65 +418,4 @@ export const shapeForm = {
     },
     onLyricChange() {},
     cleanup() { this.ctx = null; }
-}
-
-export const bigBoldText = {
-    ctx: null,
-
-    setup(canvas) {
-        this.ctx = canvas.getContext('2d');
-    },
-
-    onLyricChange() {},
-
-    update(mouse, time, lyric) {
-        if (!this.ctx) return;
-        const ctx = this.ctx;
-        const canvas = ctx.canvas;
-
-        // Clear with a solid background for a clean look
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "CLEAN";
-        
-        // --- 1. Set Font and Measure for Proper Spacing ---
-        const fontSize = 100;
-        ctx.font = `bold ${fontSize}px sans-serif`;
-
-        // Measure the text to calculate dynamic, non-overlapping spacing
-        const textMetrics = ctx.measureText(textToRender);
-        const spacingX = textMetrics.width * 1.25; // Add 25% horizontal padding
-        const spacingY = fontSize * 1.5;           // Add 50% vertical padding
-
-        if (spacingX === 0) return; // Avoid infinite loops if text is empty
-
-        // --- 2. Apply Global Skew (Smear) Effect ---
-        ctx.save();
-        const skewX = (mouse.x - canvas.width / 2) * 0.001;
-        const skewY = (mouse.y - canvas.height / 2) * 0.001;
-        
-        // Apply transform around the center for a cohesive feel
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.transform(1, skewY, skewX, 1, 0, 0);
-        ctx.translate(-canvas.width / 2, -canvas.height / 2);
-
-        // --- 3. Draw The Perfect Tile Grid ---
-        ctx.fillStyle = 'white';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        // Loop using the calculated spacing to ensure no overlap
-        for (let y = spacingY / 2; y < canvas.height; y += spacingY) {
-            for (let x = spacingX / 2; x < canvas.width; x += spacingX) {
-                ctx.fillText(textToRender, x, y);
-            }
-        }
-
-        ctx.restore(); // Reset transformations
-    },
-    
-    cleanup() {
-        this.ctx = null;
-    }
 };

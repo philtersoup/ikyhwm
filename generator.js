@@ -1,11 +1,11 @@
-import { simpleTunnel, perspectiveTunnel, spiralVortex, shapeForm, liquidDisplace, imageCollage } from './effects.js';
+import { simpleTunnel, perspectiveTunnel, spiralVortex, shapeForm, webglLiquidDisplace, imageCollage } from './effects.js';
 
-const allEffects = { simpleTunnel, perspectiveTunnel, spiralVortex, liquidDisplace, shapeForm, imageCollage };
-const timeline = [ { startTime: 0,  endTime: 999, effect: 'liquidDisplace' } ];
+const allEffects = { simpleTunnel, perspectiveTunnel, spiralVortex, webglLiquidDisplace, shapeForm, imageCollage };
+const timeline = [ { startTime: 0,  endTime: 999, effect: 'webglLiquidDisplace' } ]; // Changed to use the new WebGL effect
 const getCurrentScene = time => timeline.find(scene => time >= scene.startTime && time < scene.endTime);
 
 const canvas = document.getElementById('collage-canvas');
-const ctx = canvas.getContext('2d');
+// We no longer get a context here; the effect module will handle it.
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
@@ -21,7 +21,8 @@ function animate() {
         const module = allEffects[scene.effect];
         if (module) {
             activeScene = { name: scene.effect, module: module };
-            activeScene.module.setup(currentLyric, scene.options);
+            // Pass the canvas element to setup. The module will get its own context.
+            activeScene.module.setup(canvas, currentLyric, scene.options);
             console.log(`Switched to effect: ${activeScene.name}`);
         }
     }
@@ -30,13 +31,12 @@ function animate() {
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
         currentLyric = newText;
-        activeScene?.module.setup(currentLyric, scene?.options);
+        // The setup/update lyric logic is now handled within the effect module
     }
 
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // The update call no longer needs ctx, as the effect manages its own context.
     if (activeScene) {
-        activeScene.module.update(ctx, mouse, performance.now(), currentLyric);
+        activeScene.module.update(mouse, performance.now(), currentLyric);
     }
     
     requestAnimationFrame(animate);

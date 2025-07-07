@@ -1,4 +1,4 @@
-import { imageCollage, cleanTiledText, spiralVortex, simpleTunnel, shapeForm, passThrough, postLiquidDisplace } from './effects.js';
+import { imageCollage, cleanTiledText, spiralVortex, simpleTunnel, shapeForm, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
 const allEffects = {
     // Background Effects
@@ -13,14 +13,12 @@ const allEffects = {
     // Post-processing (WebGL) Effects
     passThrough,
     postLiquidDisplace,
+    rgbSplit,
 };
 
 // --- RANDOMIZER SETUP ---
-// A list of all text effects to cycle through
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'shapeForm'];
-// A fixed post-processing effect to use for all scenes
-const postEffectName = 'passThrough';
-// The time in milliseconds between each effect switch
+const postEffectNames = ['passThrough', 'postLiquidDisplace','rgbSplit'];
 const switchInterval = 4000; // 4 seconds
 let lastSwitchTime = 0;
 
@@ -55,29 +53,31 @@ function animate() {
     const elapsedSeconds = (now - startTime) / 1000;
 
     // --- RANDOM EFFECT SWITCHING LOGIC ---
-    if (now - lastSwitchTime > switchInterval) {
-        // Time to switch to a new effect
-        const currentEffectName = activeForeground ? activeForeground.name : '';
-        let nextEffectName;
+    if (now - lastSwitchTime > switchInterval || !activeForeground) {
+        
+        // Switch Foreground (Text) Effect
+        const currentFgEffectName = activeForeground ? activeForeground.name : '';
+        let nextFgEffectName;
         do {
-            nextEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
-        } while (foregroundEffectNames.length > 1 && nextEffectName === currentEffectName); // Ensure it's a new effect
+            nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
+        } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
 
-        // Clean up the old effect and set up the new one
         activeForeground?.module.cleanup();
-        const module = allEffects[nextEffectName];
-        activeForeground = { name: nextEffectName, module: module };
+        const fgModule = allEffects[nextFgEffectName];
+        activeForeground = { name: nextFgEffectName, module: fgModule };
         activeForeground.module.setup(foregroundCanvas, currentLyric);
-        console.log(`Switched foreground effect to: ${activeForeground.name}`);
+        console.log(`Switched foreground to: ${activeForeground.name}`);
+
+        // Switch Post-Processing Effect
+        const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
+        
+        activePost?.module.cleanup();
+        const postModule = allEffects[nextPostEffectName];
+        activePost = { name: nextPostEffectName, module: postModule };
+        activePost.module.setup(mainCanvas);
+        console.log(`Switched post-effect to: ${activePost.name}`);
         
         lastSwitchTime = now;
-    }
-    
-    // Set up the post-processing effect on the first frame
-    if (!activePost) {
-        const module = allEffects[postEffectName];
-        activePost = { name: postEffectName, module: module };
-        activePost.module.setup(mainCanvas);
     }
 
     // Update lyrics
@@ -89,11 +89,23 @@ function animate() {
     }
 
     // --- RENDER PIPELINE ---
+    // 1. Update both effects on their own canvases
     backgroundEffect.update(mouse, now);
     activeForeground?.module.update(mouse, now, currentLyric);
-    compositeCtx.globalCompositeOperation = 'source-over';
+    
+    // --- CORRECT COMPOSITING: IMAGES OVER TEXT ---
+    // 2. Clear the composite canvas and draw the text layer first.
+    compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+    compositeCtx.drawImage(foregroundCanvas, 0, 0); 
+    
+    // 3. Use the 'screen' blend mode to draw the image layer on top.
+    compositeCtx.globalCompositeOperation = 'screen';
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
-    compositeCtx.drawImage(foregroundCanvas, 0, 0);
+    
+    // 4. Reset blend mode for future operations
+    compositeCtx.globalCompositeOperation = 'source-over';
+
+    // 5. Run the post-processing effect on the final combined image
     activePost?.module.update(compositeCanvas, mouse, now);
     
     requestAnimationFrame(animate);
@@ -102,10 +114,19 @@ function animate() {
 async function init() {
     mainCanvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
     try {
+        // --- FONT LOADING ---
+        // Create a new font face object
+        const customFont = new FontFace('Blackout', 'url("assets/Blackout Midnight.ttf")');
+        // Wait for the font to be loaded and ready
+        await customFont.load();
+        // Add it to the document's available fonts
+        document.fonts.add(customFont);
+        console.log('Custom font "Blackout Midnight" loaded!');
+
         const response = await fetch('assets/lyrics.srt');
         lyrics = parseSRT(await response.text());
         startTime = performance.now();
-        lastSwitchTime = startTime; // Initialize the switch timer
+        lastSwitchTime = startTime;
         animate();
     } catch (error) {
         console.error("Initialization failed:", error);

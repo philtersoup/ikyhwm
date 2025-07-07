@@ -102,13 +102,57 @@ export const postLiquidDisplace = {
         float snoise(vec2 v){const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);vec2 i1=(x0.x>x0.y)?vec2(1.,0.):vec2(0.,1.);vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=mod289(i);vec3 p=permute(permute(i.y+vec3(0.,i1.y,1.))+i.x+vec3(0.,i1.x,1.));vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);m=m*m;m=m*m;vec3 x=2.*fract(p*C.www)-1.;vec3 h=abs(x)-.5;vec3 ox=floor(x+.5);vec3 a0=x-ox;m*=1.79284291400159-.85373472095314*(a0*a0+h*h);vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;return 130.*dot(m,g);}
         void main() {
             vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-            float distortionAmount = 0.1;
+            float distortionAmount = 0.025;
             float noiseScale = 4.0;
             float offsetX = snoise(uv * noiseScale + u_time * 0.1);
             float offsetY = snoise(uv * noiseScale + u_time * 0.11 + 10.0);
             vec2 displacement = vec2(offsetX, offsetY) * distortionAmount;
             vec2 textureCoords = vec2(uv.x, 1.0 - uv.y) + displacement;
             gl_FragColor = texture2D(u_texture, textureCoords);
+        }
+    `,
+};
+
+export const pixelate = {
+    ...postEffectPrototype, // Reuses the same setup and update logic
+    fragmentShaderSource: `
+        precision mediump float;
+        uniform sampler2D u_texture;
+        uniform vec2 u_resolution;
+        
+        // You can change this value to make the pixels bigger or smaller
+        float pixelSize = 5.0;
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+            
+            // Quantize the texture coordinates to create the pixelated effect
+            vec2 pixeledUV = floor(uv * u_resolution / pixelSize) * pixelSize / u_resolution;
+            
+            gl_FragColor = texture2D(u_texture, vec2(pixeledUV.x, 1.0 - pixeledUV.y));
+        }
+    `,
+};
+
+export const rgbSplit = {
+    ...postEffectPrototype, // Reuses the same setup and update logic
+    fragmentShaderSource: `
+        precision mediump float;
+        uniform sampler2D u_texture;
+        uniform vec2 u_resolution;
+
+        // You can change this value to increase or decrease the split amount
+        float offset = 0.001;
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+            
+            // Sample the texture three times at different offsets
+            float r = texture2D(u_texture, vec2(uv.x + offset, 1.0 - uv.y)).r;
+            float g = texture2D(u_texture, vec2(uv.x, 1.0 - uv.y)).g;
+            float b = texture2D(u_texture, vec2(uv.x - offset, 1.0 - uv.y)).b;
+            
+            gl_FragColor = vec4(r, g, b, 1.0);
         }
     `,
 };
@@ -145,13 +189,11 @@ export const imageCollage = {
         }
     },
 
-    // --- UPDATED loadImage FUNCTION ---
     loadImage(url) {
         return new Promise((resolve, reject) => {
             const img = new Image();
             img.onload = () => {
-                // --- This is the new resizing logic ---
-                const maxDim = 1200; // Resize images to a max of 1200px on their longest side
+                const maxDim = 1200;
                 const scale = Math.min(maxDim / img.width, maxDim / img.height);
                 const newWidth = img.width * scale;
                 const newHeight = img.height * scale;
@@ -161,10 +203,7 @@ export const imageCollage = {
                 offscreenCanvas.height = newHeight;
                 const offscreenCtx = offscreenCanvas.getContext('2d');
                 
-                // Draw the huge image onto the small canvas, effectively creating a resized copy
                 offscreenCtx.drawImage(img, 0, 0, newWidth, newHeight);
-
-                // From now on, we use the small canvas, not the original huge image
                 resolve(offscreenCanvas);
             };
             img.onerror = () => reject(`Failed to load image at: ${url}`);
@@ -174,17 +213,16 @@ export const imageCollage = {
 
     onLyricChange() {},
 
-    // --- The update function does not need to change ---
     update(mouse, time) {
         if (!this.ctx || !this.loaded || this.images.length === 0) return;
 
         const ctx = this.ctx;
         const canvas = ctx.canvas;
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const drawInterval = 50;
+        const drawInterval = 200;
         if (time - this.lastDrawTime < drawInterval) {
             return;
         }
@@ -196,11 +234,14 @@ export const imageCollage = {
         if (shouldRepeat) {
             slice = this.sliceCache[Math.floor(Math.random() * this.sliceCache.length)];
         } else {
-            // This now uses the small, resized canvas as the source image
             const img = this.images[Math.floor(Math.random() * this.images.length)];
             
-            const sliceWidth = img.width * (Math.random() * 0.2 + 0.5);
-            const sliceHeight = img.height * (Math.random() * 0.2 + 0.5);
+            // --- CROP MORE INTO THE IMAGE ---
+            // The slice will now be between 10% and 30% of the image's dimensions,
+            // creating a tighter, more zoomed-in crop.
+            const sliceWidth = img.width * (Math.random() * 0.2 + 0.1);
+            const sliceHeight = img.height * (Math.random() * 0.2 + 0.1);
+
             const sx = Math.random() * (img.width - sliceWidth);
             const sy = Math.random() * (img.height - sliceHeight);
 
@@ -214,12 +255,14 @@ export const imageCollage = {
 
         const dx = Math.random() * canvas.width;
         const dy = Math.random() * canvas.height;
-        const dWidth = slice.sliceWidth * 0.5;
-        const dHeight = slice.sliceHeight * 0.5;
+        
+        // Make the drawn size larger to emphasize the crop
+        const dWidth = slice.sliceWidth * 1.5;
+        const dHeight = slice.sliceHeight * 1.5;
 
-        ctx.globalAlpha = Math.random() * 0.5 + 0.5;
+        ctx.globalAlpha = Math.random() * 0.4 + 0.3;
         ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sliceWidth, slice.sliceHeight, dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
-        ctx.strokeStyle = 'white';
+        ctx.strokeStyle = '#888';
         ctx.lineWidth = 2;
         ctx.strokeRect(dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
         ctx.globalAlpha = 1.0;
@@ -249,7 +292,7 @@ export const cleanTiledText = {
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "CLEAN";
         const fontSize = 100;
-        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.font = `${fontSize}px 'Blackout'`;
         const textMetrics = ctx.measureText(textToRender);
         const spacingX = textMetrics.width * 1.25;
         const spacingY = fontSize * 1.5;
@@ -319,7 +362,7 @@ export const spiralVortex = {
         const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
         const size = this.ringRadius * 2; canvas.width = size; canvas.height = size;
         const fontSize = 60 + (ringIndex * 4);
-        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+        ctx.font = `${fontSize}px 'Blackout'`;
         Object.assign(ctx, {fillStyle:'white',textAlign:'center',textBaseline:'middle',shadowBlur:3,shadowColor:'rgba(0,0,0,0.5)'});
         ctx.translate(this.ringRadius, this.ringRadius); ctx.rotate(ringIndex * 0.1);
         const words = (text || "SPIRAL").toUpperCase().split(' ').filter(Boolean);
@@ -372,7 +415,7 @@ export const simpleTunnel = {
             const projScale = Math.min(1, Math.abs(distY) / (window.innerHeight/2));
             const fontSize = Math.max(this.baseFontSize * 0.05, this.baseFontSize * projScale);
             if (fontSize < 1) return;
-            Object.assign(ctx, {font:`bold ${fontSize}px sans-serif`,fillStyle:'white',textAlign:'center',globalAlpha:projScale});
+            Object.assign(ctx, {font:`bold ${fontSize}px 'Blackout'`,fillStyle:'white',textAlign:'center',globalAlpha:projScale});
             const warp = (mouse.x - window.innerWidth / 2) * (1 - projScale);
             const scroll = (timeOffset * row.direction) % 200;
             const finalX = window.innerWidth / 2 + scroll + warp;
@@ -385,37 +428,59 @@ export const simpleTunnel = {
 };
 
 export const shapeForm = {
-    ctx: null, shapeVertices: [],
+    ctx: null,
+
     setup(canvas) {
         this.ctx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height, padX = 0.2, padY = 0.1;
-        this.shapeVertices = [
-            {x:w*padX,y:h*padY},{x:w*(1-padX),y:h*padY}, {x:w*(1-padX),y:h*padY},{x:w*padX,y:h*(1-padY)},
-            {x:w*padX,y:h*(1-padY)},{x:w*(1-padX),y:h*(1-padY)}, {x:w*(1-padX),y:h*(1-padY)},{x:w*padX,y:h*padY},
-        ];
     },
+
+    onLyricChange() {},
+
     update(mouse, time, lyric) {
-        const ctx = this.ctx; if (!ctx) return;
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "SHAPES";
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        
-        const uppercaseText = textToRender.toUpperCase() + " ";
-        ctx.fillStyle = 'white'; ctx.font = 'bold 30px sans-serif';
-        const textWidth = ctx.measureText(uppercaseText).width;
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+
+        // Clear with a transparent background
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "HOURGLASS";
+        const fontSize = 30;
+        const rowHeight = fontSize * 1.2;
+        ctx.font = `${fontSize}px 'Blackout'`;
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'left';
+
+        const textMetrics = ctx.measureText(textToRender + " ");
+        const textWidth = textMetrics.width;
+
         if (textWidth === 0) return;
-        for (let i = 0; i < this.shapeVertices.length; i += 2) {
-            const start=this.shapeVertices[i], end=this.shapeVertices[i+1];
-            const dx=end.x-start.x, dy=end.y-start.y;
-            const angle=Math.atan2(dy,dx), len=Math.sqrt(dx*dx+dy*dy);
-            ctx.save();
-            ctx.translate(start.x, start.y); ctx.rotate(angle);
+
+        // Create horizontal rows of text
+        for (let y = 0; y < canvas.height; y += rowHeight) {
+            
+            // --- Hourglass Logic ---
+            // Calculate distance from this row to the mouse's Y position
+            const distY = Math.abs(y - mouse.y);
+            // This factor is 1.0 at the top/bottom and 0.0 at the mouse's height
+            const widthFactor = Math.pow(distY / (canvas.height / 2), 0.8);
+            
+            // Calculate the width and start position for this specific row
+            const rowWidth = canvas.width * widthFactor;
+            const startX = (canvas.width - rowWidth) / 2;
+            const endX = startX + rowWidth;
+
+            // Animate the horizontal scrolling
             const timeOffset = (time * 0.05) % textWidth;
-            for (let x = -timeOffset; x < len; x += textWidth) {
-                ctx.fillText(uppercaseText, x, 0);
+
+            // Draw the tiled text for the calculated row width
+            for (let x = startX - timeOffset; x < endX; x += textWidth) {
+                ctx.fillText(textToRender, x, y);
             }
-            ctx.restore();
         }
     },
-    onLyricChange() {},
-    cleanup() { this.ctx = null; }
+    
+    cleanup() {
+        this.ctx = null;
+    }
 };

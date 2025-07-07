@@ -13,50 +13,48 @@ const allEffects = {
     // Post-processing (WebGL) Effects
     passThrough,
     postLiquidDisplace,
+    pixelate, // Add this
     rgbSplit,
 };
 
-// --- RANDOMIZER SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'shapeForm'];
-const postEffectNames = ['passThrough', 'postLiquidDisplace','rgbSplit'];
-const switchInterval = 4000; // 4 seconds
+const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
+const switchInterval = 3692;
 let lastSwitchTime = 0;
 
-
-// --- SETUP CANVASES ---
 const mainCanvas = document.getElementById('collage-canvas');
-mainCanvas.width = window.innerWidth;
-mainCanvas.height = window.innerHeight;
-
 const backgroundCanvas = document.createElement('canvas');
-backgroundCanvas.width = window.innerWidth;
-backgroundCanvas.height = window.innerHeight;
-
 const foregroundCanvas = document.createElement('canvas');
-foregroundCanvas.width = window.innerWidth;
-foregroundCanvas.height = window.innerHeight;
-
 const compositeCanvas = document.createElement('canvas');
-compositeCanvas.width = window.innerWidth;
-compositeCanvas.height = window.innerHeight;
 const compositeCtx = compositeCanvas.getContext('2d');
 
 let lyrics = [], startTime = 0, currentLyric = "";
 let activeForeground = null, activePost = null;
-const mouse = { x: mainCanvas.width / 2, y: mainCanvas.height / 2 };
+const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+let audioContext, audioBuffer;
 
 const backgroundEffect = allEffects.imageCollage;
-backgroundEffect.setup(backgroundCanvas);
+
+// --- UI Elements ---
+const loadingOverlay = document.getElementById('loading-overlay');
+const progressBar = document.getElementById('progress-bar');
+const progressPercent = document.getElementById('progress-percent');
+const audioPromptOverlay = document.getElementById('audio-prompt-overlay');
+const startButton = document.getElementById('start-button');
+
+function resizeCanvases() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    mainCanvas.width = backgroundCanvas.width = foregroundCanvas.width = compositeCanvas.width = w;
+    mainCanvas.height = backgroundCanvas.height = foregroundCanvas.height = compositeCanvas.height = h;
+}
 
 function animate() {
     const now = performance.now();
     const elapsedSeconds = (now - startTime) / 1000;
 
-    // --- RANDOM EFFECT SWITCHING LOGIC ---
-    if (now - lastSwitchTime > switchInterval || !activeForeground) {
-        
-        // Switch Foreground (Text) Effect
-        const currentFgEffectName = activeForeground ? activeForeground.name : '';
+    if (now - lastSwitchTime > switchInterval) {
+        const currentFgEffectName = activeForeground?.name || '';
         let nextFgEffectName;
         do {
             nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
@@ -68,9 +66,7 @@ function animate() {
         activeForeground.module.setup(foregroundCanvas, currentLyric);
         console.log(`Switched foreground to: ${activeForeground.name}`);
 
-        // Switch Post-Processing Effect
         const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
-        
         activePost?.module.cleanup();
         const postModule = allEffects[nextPostEffectName];
         activePost = { name: nextPostEffectName, module: postModule };
@@ -80,7 +76,6 @@ function animate() {
         lastSwitchTime = now;
     }
 
-    // Update lyrics
     const activeLyric = lyrics.find(l => elapsedSeconds >= (l.startTime / 1000) && elapsedSeconds <= (l.endTime / 1000));
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
@@ -88,49 +83,111 @@ function animate() {
         activeForeground?.module.onLyricChange?.(currentLyric);
     }
 
-    // --- RENDER PIPELINE ---
-    // 1. Update both effects on their own canvases
     backgroundEffect.update(mouse, now);
     activeForeground?.module.update(mouse, now, currentLyric);
     
-    // --- CORRECT COMPOSITING: IMAGES OVER TEXT ---
-    // 2. Clear the composite canvas and draw the text layer first.
     compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
-    
-    // 3. Use the 'screen' blend mode to draw the image layer on top.
     compositeCtx.globalCompositeOperation = 'screen';
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
-    
-    // 4. Reset blend mode for future operations
     compositeCtx.globalCompositeOperation = 'source-over';
 
-    // 5. Run the post-processing effect on the final combined image
     activePost?.module.update(compositeCanvas, mouse, now);
     
     requestAnimationFrame(animate);
 }
 
-async function init() {
-    mainCanvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-    try {
-        // --- FONT LOADING ---
-        // Create a new font face object
-        const customFont = new FontFace('Blackout', 'url("assets/Blackout Midnight.ttf")');
-        // Wait for the font to be loaded and ready
-        await customFont.load();
-        // Add it to the document's available fonts
-        document.fonts.add(customFont);
-        console.log('Custom font "Blackout Midnight" loaded!');
+function playAudio() {
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    source.loop = true;
+    source.start(0);
+}
 
-        const response = await fetch('assets/lyrics.srt');
-        lyrics = parseSRT(await response.text());
-        startTime = performance.now();
-        lastSwitchTime = startTime;
-        animate();
-    } catch (error) {
-        console.error("Initialization failed:", error);
-    }
+async function init() {
+    resizeCanvases();
+    window.addEventListener('resize', resizeCanvases);
+    mainCanvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+    const assetsToLoad = [
+        ...allEffects.imageCollage.imageUrls,
+        'assets/Blackout Midnight.ttf',
+        'assets/audio/IKYHWM.mp3'
+    ];
+    const totalAssets = assetsToLoad.length;
+    let loadedAssets = 0;
+
+    const updateProgress = () => {
+        loadedAssets++;
+        const percent = Math.floor((loadedAssets / totalAssets) * 100);
+        progressBar.style.width = `${percent}%`;
+        progressPercent.innerText = `${percent}%`;
+    };
+
+    // --- Loading Logic ---
+    const fontPromise = new FontFace('Blackout', 'url("assets/Blackout Midnight.ttf")').load().then(font => {
+        document.fonts.add(font);
+        updateProgress();
+    });
+
+    const lyricsPromise = fetch('assets/lyrics.srt').then(res => res.text()).then(text => {
+        lyrics = parseSRT(text);
+        updateProgress();
+    });
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioPromise = fetch('assets/audio/IKYHWM.mp3').then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
+        audioBuffer = decoded;
+        updateProgress();
+    });
+
+    // Pass progress updater to collage setup, which also loads all images
+    await backgroundEffect.setup(backgroundCanvas, updateProgress); 
+
+    // Wait for the remaining assets (font, lyrics, audio)
+    await Promise.all([fontPromise, lyricsPromise, audioPromise]);
+
+    console.log("All assets loaded!");
+    
+    // --- NEW: Pre-setup the first effects BEFORE showing the start button ---
+    const initialFgEffectName = foregroundEffectNames[0];
+    const initialPostEffectName = postEffectNames[0];
+
+    // Set up the first foreground effect
+    const fgModule = allEffects[initialFgEffectName];
+    activeForeground = { name: initialFgEffectName, module: fgModule };
+    activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
+
+    // Set up the first post-processing effect
+    const postModule = allEffects[initialPostEffectName];
+    activePost = { name: initialPostEffectName, module: postModule };
+    activePost.module.setup(mainCanvas);
+    console.log(`Initial effects pre-loaded: ${activeForeground.name}, ${activePost.name}`);
+    // --- End of new logic ---
+
+
+    // Hide loading overlay and show the start button
+    loadingOverlay.style.opacity = 0;
+    setTimeout(() => {
+        loadingOverlay.classList.add('hidden');
+        audioPromptOverlay.classList.remove('hidden');
+    }, 500);
+
+    // The start button now only has to start the animation, not set it up
+    startButton.addEventListener('click', () => {
+        audioContext.resume();
+        audioPromptOverlay.style.opacity = 0;
+        setTimeout(() => {
+            audioPromptOverlay.classList.add('hidden');
+            
+            playAudio();
+            startTime = performance.now();
+            lastSwitchTime = startTime; // Start the timer for the *next* switch
+            animate(); 
+
+        }, 500);
+    }, { once: true });
 }
 
 function parseSRT(srtContent) {
@@ -146,4 +203,4 @@ function parseSRT(srtContent) {
     }).filter(Boolean);
 }
 
-init();
+init().catch(err => console.error("Initialization failed:", err));

@@ -222,7 +222,7 @@ export const imageCollage = {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const drawInterval = 200;
+        const drawInterval = 230;
         if (time - this.lastDrawTime < drawInterval) {
             return;
         }
@@ -290,7 +290,7 @@ export const cleanTiledText = {
         const canvas = ctx.canvas;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "CLEAN";
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
         const fontSize = 100;
         ctx.font = `${fontSize}px 'Blackout'`;
         const textMetrics = ctx.measureText(textToRender);
@@ -393,7 +393,7 @@ export const simpleTunnel = {
     setup(canvas, text) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); },
     onLyricChange(lyric) {
         this.rows = [];
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "TUNNEL";
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric : "";
         const uppercaseText = (textToRender.toUpperCase() + " ").repeat(15);
         const numRows = 30; const rowHeight = window.innerHeight / numRows;
         for (let i = 0; i < numRows + 1; i++) {
@@ -444,7 +444,7 @@ export const shapeForm = {
         // Clear with a transparent background
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : "HOURGLASS";
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
         const fontSize = 30;
         const rowHeight = fontSize * 1.2;
         ctx.font = `${fontSize}px 'Blackout'`;

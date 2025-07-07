@@ -4,16 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Generative Typography Sequencer</title>
-    <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
-        canvas { display: block; position: absolute; top: 0; left: 0; }
-        #ui-container { position: fixed; top: 10px; left: 10px; z-index: 100; }
-        #ui-container button { margin: 5px; padding: 10px; cursor: pointer; }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+    <div id="loading-overlay">
+        <div class="prompt-box">
+            <div id="loading-text">LOADING...</div>
+            <div id="progress-bar-container">
+                <div id="progress-bar"></div>
+            </div>
+            <div id="progress-percent">0%</div>
+        </div>
+    </div>
+
+    <div id="audio-prompt-overlay" class="hidden">
+        <div class="prompt-box">
+            <p>Disable silent mode on device.</p>
+            <button id="start-button">OK</button>
+        </div>
+    </div>
+
     <canvas id="collage-canvas"></canvas>
-    <div id="ui-container"></div>
     <script type="module" src="generator.js"></script>
 </body>
 </html>

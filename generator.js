@@ -1,4 +1,4 @@
-import { imageCollage, cleanTiledText, spiralVortex, simpleTunnel, shapeForm, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+import { imageCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
 const allEffects = {
     // Background Effects
@@ -8,20 +8,23 @@ const allEffects = {
     cleanTiledText,
     spiralVortex,
     simpleTunnel,
-    shapeForm,
+    hourglassTiling, // Correctly named hourglass effect
 
     // Post-processing (WebGL) Effects
     passThrough,
     postLiquidDisplace,
-    pixelate, // Add this
+    pixelate,
     rgbSplit,
 };
 
-const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'shapeForm'];
+// --- RANDOMIZER SETUP ---
+const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling'];
 const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
-const switchInterval = 3692;
+const switchInterval = 4000;
 let lastSwitchTime = 0;
 
+
+// --- SETUP CANVASES ---
 const mainCanvas = document.getElementById('collage-canvas');
 const backgroundCanvas = document.createElement('canvas');
 const foregroundCanvas = document.createElement('canvas');
@@ -32,6 +35,12 @@ let lyrics = [], startTime = 0, currentLyric = "";
 let activeForeground = null, activePost = null;
 const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let audioContext, audioBuffer;
+
+// --- Beat tracking variables ---
+let onsetData = { onsets: [] };
+let nextOnsetIndex = 0;
+let onsetPulse = 0; // Will spike to the 'strength' of an onset, then decay
+let pulseTarget = 0; // This value jumps instantly on a beat
 
 const backgroundEffect = allEffects.imageCollage;
 
@@ -53,29 +62,41 @@ function animate() {
     const now = performance.now();
     const elapsedSeconds = (now - startTime) / 1000;
 
-    if (now - lastSwitchTime > switchInterval) {
-        const currentFgEffectName = activeForeground?.name || '';
-        let nextFgEffectName;
-        do {
-            nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
-        } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
+    onsetPulse += (pulseTarget - onsetPulse) * 0.2;
+    pulseTarget *= 0.9;
 
-        activeForeground?.module.cleanup();
-        const fgModule = allEffects[nextFgEffectName];
-        activeForeground = { name: nextFgEffectName, module: fgModule };
-        activeForeground.module.setup(foregroundCanvas, currentLyric);
-        console.log(`Switched foreground to: ${activeForeground.name}`);
+    if (nextOnsetIndex < onsetData.onsets.length) {
+        const nextOnset = onsetData.onsets[nextOnsetIndex];
+        if (elapsedSeconds >= nextOnset.time) {
+            pulseTarget = nextOnset.strength; 
+            nextOnsetIndex++;
 
-        const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
-        activePost?.module.cleanup();
-        const postModule = allEffects[nextPostEffectName];
-        activePost = { name: nextPostEffectName, module: postModule };
-        activePost.module.setup(mainCanvas);
-        console.log(`Switched post-effect to: ${activePost.name}`);
-        
-        lastSwitchTime = now;
+            if (Math.random() < 0.15) {
+                // Switch Foreground (Text) Effect
+                const currentFgEffectName = activeForeground?.name || '';
+                let nextFgEffectName;
+                do {
+                    nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
+                } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
+
+                activeForeground?.module.cleanup();
+                const fgModule = allEffects[nextFgEffectName];
+                activeForeground = { name: nextFgEffectName, module: fgModule };
+                activeForeground.module.setup(foregroundCanvas, currentLyric);
+                console.log(`Switched foreground to: ${activeForeground.name}`);
+                
+                // Switch Post-Processing Effect
+                const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
+                activePost?.module.cleanup();
+                const postModule = allEffects[nextPostEffectName];
+                activePost = { name: nextPostEffectName, module: postModule };
+                activePost.module.setup(mainCanvas);
+                console.log(`Switched post-effect to: ${activePost.name}`);
+            }
+        }
     }
 
+    // Update lyrics
     const activeLyric = lyrics.find(l => elapsedSeconds >= (l.startTime / 1000) && elapsedSeconds <= (l.endTime / 1000));
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
@@ -83,8 +104,9 @@ function animate() {
         activeForeground?.module.onLyricChange?.(currentLyric);
     }
 
-    backgroundEffect.update(mouse, now);
-    activeForeground?.module.update(mouse, now, currentLyric);
+    // --- RENDER PIPELINE (passing the single onsetPulse) ---
+    backgroundEffect.update(mouse, now, onsetPulse);
+    activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
     
     compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
@@ -92,11 +114,12 @@ function animate() {
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
     compositeCtx.globalCompositeOperation = 'source-over';
 
-    activePost?.module.update(compositeCanvas, mouse, now);
+    activePost?.module.update(compositeCanvas, mouse, now, onsetPulse);
     
     requestAnimationFrame(animate);
 }
 
+// Simplified playAudio function
 function playAudio() {
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
@@ -108,12 +131,27 @@ function playAudio() {
 async function init() {
     resizeCanvases();
     window.addEventListener('resize', resizeCanvases);
-    mainCanvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+    function handlePointerMove(e) {
+        // Prevent default mobile behaviors like scrolling
+        e.preventDefault();
+        
+        // Check if it's a touch event or a mouse event
+        const pointer = e.touches ? e.touches[0] : e;
+        
+        mouse.x = pointer.clientX;
+        mouse.y = pointer.clientY;
+    }
+
+    // Add listeners for all pointer types
+    mainCanvas.addEventListener('mousemove', handlePointerMove);
+    mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+    mainCanvas.addEventListener('touchstart', handlePointerMove, { passive: false });
 
     const assetsToLoad = [
         ...allEffects.imageCollage.imageUrls,
         'assets/Blackout Midnight.ttf',
-        'assets/audio/IKYHWM.mp3'
+        'assets/audio/IKYHWM.mp3',
+        'assets/audio/IKYHWM_data.json',
     ];
     const totalAssets = assetsToLoad.length;
     let loadedAssets = 0;
@@ -125,7 +163,6 @@ async function init() {
         progressPercent.innerText = `${percent}%`;
     };
 
-    // --- Loading Logic ---
     const fontPromise = new FontFace('Blackout', 'url("assets/Blackout Midnight.ttf")').load().then(font => {
         document.fonts.add(font);
         updateProgress();
@@ -135,6 +172,11 @@ async function init() {
         lyrics = parseSRT(text);
         updateProgress();
     });
+    
+    const onsetsPromise = fetch('assets/audio/IKYHWM_data.json').then(res => res.json()).then(data => {
+        onsetData = data;
+        updateProgress();
+    });
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const audioPromise = fetch('assets/audio/IKYHWM.mp3').then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
@@ -142,39 +184,29 @@ async function init() {
         updateProgress();
     });
 
-    // Pass progress updater to collage setup, which also loads all images
-    await backgroundEffect.setup(backgroundCanvas, updateProgress); 
-
-    // Wait for the remaining assets (font, lyrics, audio)
-    await Promise.all([fontPromise, lyricsPromise, audioPromise]);
+    await allEffects.imageCollage.setup(backgroundCanvas, updateProgress);
+    await Promise.all([fontPromise, lyricsPromise, audioPromise, onsetsPromise]);
 
     console.log("All assets loaded!");
     
-    // --- NEW: Pre-setup the first effects BEFORE showing the start button ---
     const initialFgEffectName = foregroundEffectNames[0];
     const initialPostEffectName = postEffectNames[0];
 
-    // Set up the first foreground effect
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
     activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
 
-    // Set up the first post-processing effect
     const postModule = allEffects[initialPostEffectName];
     activePost = { name: initialPostEffectName, module: postModule };
     activePost.module.setup(mainCanvas);
     console.log(`Initial effects pre-loaded: ${activeForeground.name}, ${activePost.name}`);
-    // --- End of new logic ---
 
-
-    // Hide loading overlay and show the start button
     loadingOverlay.style.opacity = 0;
     setTimeout(() => {
         loadingOverlay.classList.add('hidden');
         audioPromptOverlay.classList.remove('hidden');
     }, 500);
 
-    // The start button now only has to start the animation, not set it up
     startButton.addEventListener('click', () => {
         audioContext.resume();
         audioPromptOverlay.style.opacity = 0;
@@ -183,7 +215,7 @@ async function init() {
             
             playAudio();
             startTime = performance.now();
-            lastSwitchTime = startTime; // Start the timer for the *next* switch
+            lastSwitchTime = startTime;
             animate(); 
 
         }, 500);

@@ -1,14 +1,68 @@
-import { imageCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+import { imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+
+
+const mediaManager = {
+    images: [],
+    imageUrls: [
+        'assets/images/DSCF4317.JPG', 'assets/images/DSCF4379.JPG', 'assets/images/DSCF7135.jpg', 
+        'assets/images/DSCF8082.jpg', 'assets/images/DSCF8191.jpg', 'assets/images/DSCF4325.JPG', 
+        'assets/images/DSCF6856.jpg', 'assets/images/DSCF7136.jpg', 'assets/images/DSCF8084.jpg', 
+        'assets/images/DSCF8196.jpg', 'assets/images/DSCF4327.JPG', 'assets/images/DSCF6873.jpg', 
+        'assets/images/DSCF7137.jpg', 'assets/images/DSCF8123.jpg', 'assets/images/DSCF8206.jpg', 
+        'assets/images/DSCF4342.JPG', 'assets/images/DSCF6875.jpg', 'assets/images/DSCF7138.jpg', 
+        'assets/images/DSCF8138.jpg', 'assets/images/DSCF8209.jpg', 'assets/images/DSCF4355.JPG', 
+        'assets/images/DSCF7100.jpg', 'assets/images/DSCF7142.jpg', 'assets/images/DSCF8153.jpg', 
+        'assets/images/DSCF8211.jpg', 'assets/images/DSCF4366.JPG', 'assets/images/DSCF7112.jpg', 
+        'assets/images/DSCF7143.jpg', 'assets/images/DSCF8154.jpg', 'assets/images/DSCF8276.jpg', 
+        'assets/images/DSCF4372.JPG', 'assets/images/DSCF7119.jpg', 'assets/images/DSCF7147.jpg', 
+        'assets/images/DSCF8176.jpg', 'assets/images/DSCF8278.jpg', 'assets/images/DSCF4374.JPG', 
+        'assets/images/DSCF7132.jpg', 'assets/images/DSCF7151.jpg', 'assets/images/DSCF8179.jpg', 
+        'assets/images/DSCF4375.JPG', 'assets/images/DSCF7133.jpg', 'assets/images/DSCF7154.jpg', 
+        'assets/images/DSCF8181.jpg'
+    ],
+    async load(updateProgress) {
+        const imagePromises = this.imageUrls.map(url => 
+            new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    updateProgress();
+                    resolve(img);
+                };
+                img.onerror = () => reject(`Failed to load image at: ${url}`);
+                img.src = url;
+            })
+        );
+        const loadedImages = await Promise.all(imagePromises);
+        
+        // Resize images once on load
+        this.images = loadedImages.map(img => {
+            const maxDim = 1200;
+            const scale = Math.min(maxDim / img.width, maxDim / img.height);
+            const newWidth = img.width * scale;
+            const newHeight = img.height * scale;
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = newWidth;
+            offscreenCanvas.height = newHeight;
+            const offscreenCtx = offscreenCanvas.getContext('2d');
+            offscreenCtx.drawImage(img, 0, 0, newWidth, newHeight);
+            return offscreenCanvas;
+        });
+        console.log('Shared media assets loaded and resized once!');
+    }
+};
 
 const allEffects = {
     // Background Effects
     imageCollage,
+    perspectiveTunnelCollage, 
+    fallingPolaroidsCollage,
 
     // Foreground (Text) Effects
     cleanTiledText,
     spiralVortex,
     simpleTunnel,
-    hourglassTiling, // Correctly named hourglass effect
+    hourglassTiling, 
+    layeredWarpText,
 
     // Post-processing (WebGL) Effects
     passThrough,
@@ -18,9 +72,11 @@ const allEffects = {
 };
 
 // --- RANDOMIZER SETUP ---
-const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling'];
+const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
+// const foregroundEffectNames = ['layeredWarpText'];
+const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage'];
+
 const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
-const switchInterval = 4000;
 let lastSwitchTime = 0;
 
 
@@ -42,7 +98,7 @@ let nextOnsetIndex = 0;
 let onsetPulse = 0; // Will spike to the 'strength' of an onset, then decay
 let pulseTarget = 0; // This value jumps instantly on a beat
 
-const backgroundEffect = allEffects.imageCollage;
+let activeBackground = null; // Changed from const to let
 
 // --- UI Elements ---
 const loadingOverlay = document.getElementById('loading-overlay');
@@ -71,6 +127,7 @@ function animate() {
             pulseTarget = nextOnset.strength; 
             nextOnsetIndex++;
 
+            // Using your updated 15% chance to switch
             if (Math.random() < 0.15) {
                 // Switch Foreground (Text) Effect
                 const currentFgEffectName = activeForeground?.name || '';
@@ -92,11 +149,25 @@ function animate() {
                 activePost = { name: nextPostEffectName, module: postModule };
                 activePost.module.setup(mainCanvas);
                 console.log(`Switched post-effect to: ${activePost.name}`);
+
+
+                // --- Background switching is commented out as requested ---
+                const currentBgEffectName = activeBackground?.name || '';
+                let nextBgEffectName;
+                do {
+                    nextBgEffectName = backgroundEffectNames[Math.floor(Math.random() * backgroundEffectNames.length)];
+                } while (backgroundEffectNames.length > 1 && nextBgEffectName === currentBgEffectName);
+
+                activeBackground?.module.cleanup();
+                const bgModule = allEffects[nextBgEffectName];
+                activeBackground = { name: nextBgEffectName, module: bgModule };
+                activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+                console.log(`Switched background to: ${activeBackground.name}`);
+
             }
         }
     }
 
-    // Update lyrics
     const activeLyric = lyrics.find(l => elapsedSeconds >= (l.startTime / 1000) && elapsedSeconds <= (l.endTime / 1000));
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
@@ -104,8 +175,8 @@ function animate() {
         activeForeground?.module.onLyricChange?.(currentLyric);
     }
 
-    // --- RENDER PIPELINE (passing the single onsetPulse) ---
-    backgroundEffect.update(mouse, now, onsetPulse);
+    // RENDER PIPELINE
+    activeBackground?.module.update(mouse, now, onsetPulse);
     activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
     
     compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
@@ -131,24 +202,19 @@ function playAudio() {
 async function init() {
     resizeCanvases();
     window.addEventListener('resize', resizeCanvases);
+    
     function handlePointerMove(e) {
-        // Prevent default mobile behaviors like scrolling
         e.preventDefault();
-        
-        // Check if it's a touch event or a mouse event
         const pointer = e.touches ? e.touches[0] : e;
-        
         mouse.x = pointer.clientX;
         mouse.y = pointer.clientY;
     }
-
-    // Add listeners for all pointer types
     mainCanvas.addEventListener('mousemove', handlePointerMove);
     mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
     mainCanvas.addEventListener('touchstart', handlePointerMove, { passive: false });
 
     const assetsToLoad = [
-        ...allEffects.imageCollage.imageUrls,
+        ...mediaManager.imageUrls,
         'assets/Blackout Midnight.ttf',
         'assets/audio/IKYHWM.mp3',
         'assets/audio/IKYHWM_data.json',
@@ -183,15 +249,24 @@ async function init() {
         audioBuffer = decoded;
         updateProgress();
     });
+    
+    // The media manager now handles all image loading and progress updates itself
+    const mediaPromise = mediaManager.load(updateProgress);
 
-    await allEffects.imageCollage.setup(backgroundCanvas, updateProgress);
-    await Promise.all([fontPromise, lyricsPromise, audioPromise, onsetsPromise]);
+    await Promise.all([fontPromise, lyricsPromise, audioPromise, onsetsPromise, mediaPromise]);
 
     console.log("All assets loaded!");
     
+    // --- Pre-setup the first effects ---
+    const initialBgEffectName = 'imageCollage'; 
     const initialFgEffectName = foregroundEffectNames[0];
     const initialPostEffectName = postEffectNames[0];
 
+    const bgModule = allEffects[initialBgEffectName];
+    activeBackground = { name: initialBgEffectName, module: bgModule };
+    // The setup function now correctly receives the pre-loaded images
+    activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+    
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
     activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
@@ -199,8 +274,9 @@ async function init() {
     const postModule = allEffects[initialPostEffectName];
     activePost = { name: initialPostEffectName, module: postModule };
     activePost.module.setup(mainCanvas);
-    console.log(`Initial effects pre-loaded: ${activeForeground.name}, ${activePost.name}`);
+    console.log(`Initial effects pre-loaded: ${activeBackground.name}, ${activeForeground.name}, ${activePost.name}`);
 
+    // --- UI Transition and Start ---
     loadingOverlay.style.opacity = 0;
     setTimeout(() => {
         loadingOverlay.classList.add('hidden');
@@ -215,7 +291,6 @@ async function init() {
             
             playAudio();
             startTime = performance.now();
-            lastSwitchTime = startTime;
             animate(); 
 
         }, 500);

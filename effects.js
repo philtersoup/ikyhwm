@@ -100,29 +100,32 @@ export const postLiquidDisplace = {
         uniform float u_time;
         uniform float u_onsetPulse;
 
-        // snoise function remains the same...
-        vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
-        vec2 mod289(vec2 x){return x-floor(x*(1./289.))*289.;}
-        vec3 permute(vec3 x){return mod289(((x*34.)+1.)*x);}
-        float snoise(vec2 v){const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);vec2 i1=(x0.x>x0.y)?vec2(1.,0.):vec2(0.,1.);vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=mod289(i);vec3 p=permute(permute(i.y+vec3(0.,i1.y,1.))+i.x+vec3(0.,i1.x,1.));vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);m=m*m;m=m*m;vec3 x=2.*fract(p*C.www)-1.;vec3 h=abs(x)-.5;vec3 ox=floor(x+.5);vec3 a0=x-ox;m*=1.79284291400159-.85373472095314*(a0*a0+h*h);vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;return 130.*dot(m,g);}
+        // Condensed 3D Simplex Noise
+        vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;} // FIX: Added this missing vec3 overload
+        vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+        vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+        vec4 taylorInvSqrt(vec4 r){return 1.792842914-r*.8537347209;}
+        float snoise(vec3 v){const vec2 C=vec2(1./6.,1./3.);const vec4 D=vec4(0.,.5,1.,2.);vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.-g;vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;i=mod289(i);vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));float n_=.142857142857;vec3 ns=n_*D.wyz-D.xzx;vec4 j=p-49.*floor(p*ns.z*ns.z);vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.*x_);vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.-abs(x)-abs(y);vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);vec4 s0=floor(b0)*2.+1.;vec4 s1=floor(b1)*2.+1.;vec4 sh=-step(h,vec4(0.));vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.);m=m*m;return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));}
 
         void main() {
             vec2 uv = gl_FragCoord.xy / u_resolution.xy;
             
-            // --- ASPECT RATIO CORRECTION FOR NOISE ---
             float aspectRatio = u_resolution.x / u_resolution.y;
             vec2 scaled_uv = uv;
-            scaled_uv.x *= aspectRatio; // Scale the x-coordinate
+            scaled_uv.x *= aspectRatio;
 
             float distortionAmount = 0.025 + u_onsetPulse * 0.05;
             float noiseScale = 4.0;
+            float time = u_time * 0.1;
             
-            // Use the new 'scaled_uv' for the noise calculation
-            float offsetX = snoise(scaled_uv * noiseScale + u_time * 0.1);
-            float offsetY = snoise(scaled_uv * noiseScale + u_time * 0.11 + 10.0);
+            vec3 noisePos = vec3(scaled_uv * noiseScale, time);
+            float offsetX = snoise(noisePos);
+            float offsetY = snoise(noisePos + vec3(10.5, -5.2, 1.1));
             
             vec2 displacement = vec2(offsetX, offsetY) * distortionAmount;
-            vec2 textureCoords = vec2(uv.x, 1.0 - uv.y) + displacement;
+            
+            vec2 textureCoords = vec2(uv.x, 1.0 - uv.y) + displacement; 
+            
             gl_FragColor = texture2D(u_texture, textureCoords);
         }
     `,
@@ -166,77 +169,37 @@ export const rgbSplit = {
 // BACKGROUND EFFECT
 // =================================================================
 export const imageCollage = {
-    ctx: null, images: [], loaded: false, sliceCache: [], cacheSize: 20, lastDrawTime: 0,
-    imageUrls: [
-        'assets/images/DSCF6874.JPG', 'assets/images/DSCF7020.JPG',
-        'assets/images/DSCF7027.JPG', 'assets/images/DSCF7032.JPG',
-        'assets/images/DSCF7142.JPG', 'assets/images/DSCF7151.JPG',
-        'assets/images/DSCF8081_1.jpg', 'assets/images/DSCF8125.JPG',
-        'assets/images/DSCF8129.JPG', 'assets/images/DSCF8196.JPG',
-        'assets/images/DSCF8207.JPG', 'assets/images/DSCF8256.JPG',
-        'assets/images/DSCF8272.JPG',
-    ],
-    async setup(canvas, updateProgress) {
+    ctx: null,
+    images: [],
+    sliceCache: [],
+    cacheSize: 25,
+    lastDrawTime: 0,
+
+    setup(canvas, initialText, sharedImages) {
         this.ctx = canvas.getContext('2d');
         this.sliceCache = [];
-        try {
-            const imagePromises = this.imageUrls.map(url => 
-                this.loadImage(url).then(img => {
-                    updateProgress();
-                    return img;
-                })
-            );
-            this.images = await Promise.all(imagePromises);
-            this.loaded = true;
-            console.log('All images loaded and resized in memory!');
-        } catch (error) {
-            console.error("Failed to load images for collage:", error);
-        }
-    },
-    loadImage(url) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                const maxDim = 1200;
-                const scale = Math.min(maxDim / img.width, maxDim / img.height);
-                const newWidth = img.width * scale;
-                const newHeight = img.height * scale;
-                const offscreenCanvas = document.createElement('canvas');
-                offscreenCanvas.width = newWidth;
-                offscreenCanvas.height = newHeight;
-                const offscreenCtx = offscreenCanvas.getContext('2d');
-                offscreenCtx.drawImage(img, 0, 0, newWidth, newHeight);
-                resolve(offscreenCanvas);
-            };
-            img.onerror = () => reject(`Failed to load image at: ${url}`);
-            img.src = url;
-        });
+        this.images = sharedImages; // Receives pre-loaded images
     },
     onLyricChange() {},
     update(mouse, time, onsetPulse = 0) {
-        if (!this.ctx || !this.loaded || this.images.length === 0) return;
-
+        if (!this.ctx || this.images.length === 0) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-
         ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const drawInterval = (1-onsetPulse) * 230;
+        const drawInterval = (1 - onsetPulse) * 300;
         if (time - this.lastDrawTime < drawInterval) {
             return;
         }
         this.lastDrawTime = time;
-
         let slice;
-        const shouldRepeat = this.sliceCache.length > 0 && Math.random() < 0.4;
-
+        const shouldRepeat = this.sliceCache.length > 0 && Math.random() < 0.2;
         if (shouldRepeat) {
             slice = this.sliceCache[Math.floor(Math.random() * this.sliceCache.length)];
         } else {
             const img = this.images[Math.floor(Math.random() * this.images.length)];
-            const sliceWidth = img.width * (Math.random() * 0.2 + 0.1);
-            const sliceHeight = img.height * (Math.random() * 0.2 + 0.1);
+            const sliceWidth = img.width * (Math.random() * 0.6 + 0.1);
+            const sliceHeight = img.height * (Math.random() * 0.6 + 0.1);
             const sx = Math.random() * (img.width - sliceWidth);
             const sy = Math.random() * (img.height - sliceHeight);
             slice = { img, sx, sy, sliceWidth, sliceHeight };
@@ -245,12 +208,11 @@ export const imageCollage = {
                 this.sliceCache.shift();
             }
         }
-
         const dx = Math.random() * canvas.width;
         const dy = Math.random() * canvas.height;
-        const dWidth = slice.sliceWidth * (1.5 + onsetPulse * 1.5);
-        const dHeight = slice.sliceHeight * (1.5 + onsetPulse * 1.5);
-
+        const zoomLevel = Math.random() * 2 + 0.5;
+        const dWidth = slice.sliceWidth * (zoomLevel + onsetPulse * 1.5);
+        const dHeight = slice.sliceHeight * (zoomLevel + onsetPulse * 1.5);
         ctx.globalAlpha = Math.random() * 0.4 + 0.3;
         ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sliceWidth, slice.sliceHeight, dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
         ctx.strokeStyle = '#888';
@@ -258,8 +220,207 @@ export const imageCollage = {
         ctx.strokeRect(dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
         ctx.globalAlpha = 1.0;
     },
-    cleanup() { this.ctx = null; this.images = []; this.sliceCache = []; this.loaded = false; }
+    cleanup() { this.ctx = null; this.images = []; this.sliceCache = []; }
 };
+
+
+export const perspectiveTunnelCollage = {
+    ctx: null,
+    images: [],
+    slices: [],
+    numSlices: 200, // The number of images in the tunnel
+    maxDepth: 1000, // How deep the tunnel is
+
+    setup(canvas, initialText, sharedImages) {
+        this.ctx = canvas.getContext('2d');
+        this.images = sharedImages;
+        this.slices = [];
+        
+        // Pre-populate the tunnel with slice objects
+        for (let i = 0; i < this.numSlices; i++) {
+            const img = this.images[Math.floor(Math.random() * this.images.length)];
+            
+            // Create a square crop for each slice
+            const shorterSide = Math.min(img.width, img.height);
+            const sliceDim = shorterSide * (Math.random() * 0.3 + 0.1);
+            
+            this.slices.push({
+                img: img,
+                sx: Math.random() * (img.width - sliceDim),
+                sy: Math.random() * (img.height - sliceDim),
+                sWidth: sliceDim,
+                sHeight: sliceDim,
+                // Give it a random position in 3D space
+                x: (Math.random() - 0.5) * canvas.width * 2,
+                y: (Math.random() - 0.5) * canvas.height * 2,
+                z: Math.random() * this.maxDepth,
+            });
+        }
+    },
+
+    onLyricChange() {},
+    // In effects.js, replace the update method for perspectiveTunnelCollage
+    update(mouse, time, onsetPulse = 0) {
+        if (!this.ctx || this.images.length === 0) return;
+
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        this.slices.sort((a, b) => b.z - a.z);
+
+        const speed = 2 + onsetPulse * 10;
+        const fov = 300;
+        const baseSliceSize = 250;
+        
+        const vanishingPointX = canvas.width / 2;
+        const vanishingPointY = canvas.height / 2;
+
+        // Calculate mouse influence for both axes
+        const mouseInfluenceX = (mouse.x - vanishingPointX);
+        const mouseInfluenceY = (mouse.y - vanishingPointY); // NEW: Y-axis influence
+
+        this.slices.forEach(slice => {
+            slice.z -= speed;
+
+            if (slice.z < 1) {
+                slice.z = this.maxDepth;
+                slice.x = (Math.random() - 0.5) * canvas.width * 2;
+                slice.y = (Math.random() - 0.5) * canvas.height * 2;
+            }
+
+            const scale = fov / (fov + slice.z);
+            
+            // Calculate warp offset for both axes
+            const warpOffsetX = mouseInfluenceX * (1 - scale) * 0.75;
+            const warpOffsetY = mouseInfluenceY * (1 - scale) * 0.75; // NEW: Y-axis warp
+            
+            const screenX = vanishingPointX + slice.x * scale + warpOffsetX;
+            const screenY = vanishingPointY + slice.y * scale + warpOffsetY; // Apply Y-axis warp
+            const size = baseSliceSize * scale;
+
+            ctx.save();
+            ctx.globalAlpha = scale * 0.9;
+            ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sWidth, slice.sHeight, 
+                        screenX - size / 2, screenY - size / 2, size, size);
+            ctx.restore();
+        });
+    },
+    
+    cleanup() {
+        this.ctx = null;
+        this.images = [];
+        this.slices = [];
+    }
+};
+
+export const fallingPolaroidsCollage = {
+    ctx: null,
+    images: [],
+    polaroids: [],
+    setup(canvas, initialText, sharedImages) {
+        this.ctx = canvas.getContext('2d');
+        this.polaroids = [];
+        this.images = sharedImages;
+        this.loaded = true;
+    },
+    onLyricChange() {},
+    // In effects.js, replace the update method for fallingPolaroidsCollage
+    update(mouse, time, onsetPulse = 0) {
+        if (!this.ctx || !this.loaded || this.images.length === 0) return;
+
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (onsetPulse > 0.1) {
+            const img = this.images[Math.floor(Math.random() * this.images.length)];
+
+            // --- NEW: Square Cropping Logic ---
+            // 1. Find the shorter side of the source image to define the max crop size.
+            const shorterSide = Math.min(img.width, img.height);
+
+            // 2. Define the slice dimension as a percentage of the shorter side.
+            const sliceDim = shorterSide * 0.4; // Crop a square that's 40% of the shorter side.
+            const sWidth = sliceDim;
+            const sHeight = sliceDim;
+
+            // 3. Find a random valid top-left (sx, sy) coordinate for the square crop.
+            const sx = Math.random() * (img.width - sWidth);
+            const sy = Math.random() * (img.height - sHeight);
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 4 + Math.random() * 4;
+
+            this.polaroids.push({
+                img, sx, sy, sWidth, sHeight,
+                x: canvas.width / 2,
+                y: canvas.height / 4,
+                rotation: (Math.random() - 0.5) * 0.5,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                vr: (Math.random() - 0.5) * 0.02
+            });
+        }
+        
+        if (this.polaroids.length > 100) {
+            this.polaroids.splice(0, this.polaroids.length - 100);
+        }
+
+        for (let i = this.polaroids.length - 1; i >= 0; i--) {
+            const p = this.polaroids[i];
+            
+            const dx = p.x - mouse.x;
+            const dy = p.y - mouse.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const forceRadius = 250;
+
+            if (distance < forceRadius) {
+                const force = 1 - (distance / forceRadius);
+                const forceMultiplier = 1.0; 
+                const forceX = (dx / distance) * force * forceMultiplier;
+                const forceY = (dy / distance) * force * forceMultiplier;
+                p.vx += forceX;
+                p.vy += forceY;
+            }
+            
+            p.vy += 0.1;
+            p.vx *= 0.98;
+            p.vy *= 0.98;
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            p.rotation += p.vr;
+            
+            if (p.y > canvas.height + 200) {
+                this.polaroids.splice(i, 1);
+                continue;
+            }
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation);
+            ctx.globalAlpha = 1.0;
+            
+            const polaroidFrameSize = 250;
+
+            // Draw the square source slice to fill the square destination frame
+            ctx.drawImage(p.img, p.sx, p.sy, p.sWidth, p.sHeight, 
+                        -polaroidFrameSize / 2, -polaroidFrameSize / 2, 
+                        polaroidFrameSize, polaroidFrameSize);
+            
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(-polaroidFrameSize / 2, -polaroidFrameSize / 2, polaroidFrameSize, polaroidFrameSize);
+            ctx.restore();
+        }
+    },
+    
+    cleanup() { this.ctx = null; this.images = []; this.polaroids = []; this.loaded = false; }
+};
+
 
 // =================================================================
 // FOREGROUND (TEXT) EFFECTS
@@ -458,6 +619,71 @@ export const hourglassTiling = {
             for (let x = startX - timeOffset; x < endX; x += textWidth) {
                 ctx.fillText(textToRender, x, y);
             }
+        }
+    },
+    cleanup() { this.ctx = null; }
+};
+
+export const layeredWarpText = {
+    ctx: null,
+    setup(canvas) {
+        this.ctx = canvas.getContext('2d');
+    },
+    onLyricChange() {},
+    // In effects.js, replace the update method for layeredWarpText
+    update(mouse, time, lyric, onsetPulse = 0) {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
+        
+        const baseSize = Math.min(canvas.width, canvas.height);
+        const fontSize = baseSize / 7;
+        ctx.font = `${fontSize}px 'Blackout'`;
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.textAlign = 'left'; 
+        ctx.textBaseline = 'middle';
+
+        const totalLayers = 40;
+        const visibleLayers = 5 + Math.floor(2 * onsetPulse * (totalLayers - 5));
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const totalTextWidth = ctx.measureText(textToRender).width;
+
+        for (let i = visibleLayers; i >= 0; i--) {
+            ctx.save();
+            
+            const progress = i / totalLayers; // A value from 0 to 1 representing layer depth
+            ctx.globalAlpha = (1 - progress) * 0.75;
+
+            // --- NEW: Offset & Warp Calculation ---
+            // 1. Create a strong, accelerating downward motion for the Y-axis.
+            let yOffset = Math.pow(progress, 2) * 300;
+            
+            // 2. Create a more subtle sideways motion for the X-axis.
+            let xOffset = progress * -80;
+            
+            // 3. Keep the mouse interaction.
+            const mouseWarp = (mouse.x - centerX) * progress * 0.3;
+            xOffset += mouseWarp;
+
+            ctx.translate(centerX + xOffset, centerY + yOffset);
+
+            let currentX = -totalTextWidth / 2;
+            for (let j = 0; j < textToRender.length; j++) {
+                const letter = textToRender[j];
+                const letterWobble = Math.sin(time * 0.003 + j * 0.8) * 10;
+                
+                ctx.fillStyle = 'black';
+                ctx.fillText(letter, currentX, letterWobble);
+                ctx.strokeText(letter, currentX, letterWobble);
+                currentX += ctx.measureText(letter).width;
+            }
+
+            ctx.restore();
         }
     },
     cleanup() { this.ctx = null; }

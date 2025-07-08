@@ -404,23 +404,105 @@ export const fallingPolaroidsCollage = {
             ctx.rotate(p.rotation);
             ctx.globalAlpha = 1.0;
             
-            const polaroidFrameSize = 250;
+        const shorterSide = Math.min(canvas.width, canvas.height);
+        const polaroidFrameSize = shorterSide * 0.25; // Now 25% of the shortest screen side
 
-            // Draw the square source slice to fill the square destination frame
-            ctx.drawImage(p.img, p.sx, p.sy, p.sWidth, p.sHeight, 
-                        -polaroidFrameSize / 2, -polaroidFrameSize / 2, 
-                        polaroidFrameSize, polaroidFrameSize);
-            
-            ctx.strokeStyle = '#ccc';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(-polaroidFrameSize / 2, -polaroidFrameSize / 2, polaroidFrameSize, polaroidFrameSize);
-            ctx.restore();
+        const aspectRatio = p.sWidth / p.sHeight;
+        let dWidth, dHeight;
+        if (aspectRatio > 1) {
+            dWidth = polaroidFrameSize;
+            dHeight = polaroidFrameSize / aspectRatio;
+        } else {
+            dHeight = polaroidFrameSize;
+            dWidth = polaroidFrameSize * aspectRatio;
+        }
+        ctx.drawImage(p.img, p.sx, p.sy, p.sWidth, p.sHeight, -dWidth / 2, -dHeight / 2, dWidth, dHeight);
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-polaroidFrameSize / 2, -polaroidFrameSize / 2, polaroidFrameSize, polaroidFrameSize);
+        ctx.restore();
         }
     },
     
     cleanup() { this.ctx = null; this.images = []; this.polaroids = []; this.loaded = false; }
 };
 
+export const blackBackground = {
+    ctx: null,
+    setup(canvas) {
+        this.ctx = canvas.getContext('2d');
+    },
+    onLyricChange() {},
+    update() {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        // The only job of this effect is to clear the screen with black.
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    },
+    cleanup() {
+        this.ctx = null;
+    }
+};
+
+export const holdStrobeEffect = {
+    ctx: null,
+    mode: 'strobe', // The current visual mode
+    modes: ['strobe', 'wipe', 'ramp'], // Available modes
+
+    setup(canvas) {
+        this.ctx = canvas.getContext('2d');
+        // Choose a random mode each time the effect is activated
+        this.mode = this.modes[Math.floor(Math.random() * this.modes.length)];
+        console.log(`Hold Strobe Mode: ${this.mode}`);
+    },
+
+    onLyricChange() {},
+
+    update(mouse, time, onsetPulse = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const canvas = ctx.canvas;
+
+    // The rendering logic is now specific to the mode
+    switch (this.mode) {
+        case 'strobe':
+        case 'ramp':
+            // For modes that use fading trails, draw the transparent background first
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = 'white';
+            if (this.mode === 'strobe' && onsetPulse > 0.5) {
+                ctx.globalAlpha = onsetPulse;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else if (this.mode === 'ramp') {
+                ctx.globalAlpha = onsetPulse;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            break;
+        
+        case 'wipe':
+            // For the wipe, start with a clean, solid black background
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Then draw a solid white wipe rectangle on top
+            const wipeWidth = canvas.width * ((time * 0.003) % 1);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, wipeWidth, canvas.height);
+            break;
+    }
+
+    // Reset global alpha at the end to be safe
+    ctx.globalAlpha = 1.0;
+    },
+    
+    cleanup() {
+        this.ctx = null;
+    }
+};
 
 // =================================================================
 // FOREGROUND (TEXT) EFFECTS

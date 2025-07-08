@@ -1,4 +1,4 @@
-import { imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
 
 const mediaManager = {
@@ -56,6 +56,8 @@ const allEffects = {
     imageCollage,
     perspectiveTunnelCollage, 
     fallingPolaroidsCollage,
+    blackBackground,
+    holdStrobeEffect,
 
     // Foreground (Text) Effects
     cleanTiledText,
@@ -74,7 +76,7 @@ const allEffects = {
 // --- RANDOMIZER SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
 // const foregroundEffectNames = ['layeredWarpText'];
-const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage'];
+const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage', 'blackBackground', 'holdStrobeEffect'];
 
 const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
 let lastSwitchTime = 0;
@@ -89,8 +91,19 @@ const compositeCtx = compositeCanvas.getContext('2d');
 
 let lyrics = [], startTime = 0, currentLyric = "";
 let activeForeground = null, activePost = null;
-const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+let physicalMouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 }; // Tracks the real cursor
+let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 }; // Tracks the smoothed position
 let audioContext, audioBuffer;
+
+let isDragging = false;
+let touchStartX = 0;
+let touchStartY = 0;
+
+// --- Hold Gesture Variables ---
+let holdTimer = null;
+let isHolding = false;
+const HOLD_DURATION = 500; // ms
+
 
 // --- Beat tracking variables ---
 let onsetData = { onsets: [] };
@@ -118,56 +131,30 @@ function animate() {
     const now = performance.now();
     const elapsedSeconds = (now - startTime) / 1000;
 
+    // --- NEW: Add Mouse Smoothing / Easing ---
+    // The smoothed mouse position gently "chases" the actual cursor position.
+    // A smaller easing factor (e.g., 0.05) creates more lag.
+    const easingFactor = 0.08;
+    mouse.x += (physicalMouse.x - mouse.x) * easingFactor;
+    mouse.y += (physicalMouse.y - mouse.y) * easingFactor;
+
+    // --- (The rest of the animate function remains exactly the same) ---
+
+    // Onset Detection Logic
     onsetPulse += (pulseTarget - onsetPulse) * 0.2;
     pulseTarget *= 0.9;
-
     if (nextOnsetIndex < onsetData.onsets.length) {
         const nextOnset = onsetData.onsets[nextOnsetIndex];
         if (elapsedSeconds >= nextOnset.time) {
             pulseTarget = nextOnset.strength; 
             nextOnsetIndex++;
-
-            // Using your updated 15% chance to switch
             if (Math.random() < 0.15) {
-                // Switch Foreground (Text) Effect
-                const currentFgEffectName = activeForeground?.name || '';
-                let nextFgEffectName;
-                do {
-                    nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
-                } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
-
-                activeForeground?.module.cleanup();
-                const fgModule = allEffects[nextFgEffectName];
-                activeForeground = { name: nextFgEffectName, module: fgModule };
-                activeForeground.module.setup(foregroundCanvas, currentLyric);
-                console.log(`Switched foreground to: ${activeForeground.name}`);
-                
-                // Switch Post-Processing Effect
-                const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
-                activePost?.module.cleanup();
-                const postModule = allEffects[nextPostEffectName];
-                activePost = { name: nextPostEffectName, module: postModule };
-                activePost.module.setup(mainCanvas);
-                console.log(`Switched post-effect to: ${activePost.name}`);
-
-
-                // --- Background switching is commented out as requested ---
-                const currentBgEffectName = activeBackground?.name || '';
-                let nextBgEffectName;
-                do {
-                    nextBgEffectName = backgroundEffectNames[Math.floor(Math.random() * backgroundEffectNames.length)];
-                } while (backgroundEffectNames.length > 1 && nextBgEffectName === currentBgEffectName);
-
-                activeBackground?.module.cleanup();
-                const bgModule = allEffects[nextBgEffectName];
-                activeBackground = { name: nextBgEffectName, module: bgModule };
-                activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
-                console.log(`Switched background to: ${activeBackground.name}`);
-
+                switchEffects();
             }
         }
     }
-
+    
+    // Lyric Update Logic
     const activeLyric = lyrics.find(l => elapsedSeconds >= (l.startTime / 1000) && elapsedSeconds <= (l.endTime / 1000));
     const newText = activeLyric ? activeLyric.text : " ";
     if (newText !== currentLyric) {
@@ -176,6 +163,7 @@ function animate() {
     }
 
     // RENDER PIPELINE
+    // All effects will now automatically use the new smoothed `mouse` values
     activeBackground?.module.update(mouse, now, onsetPulse);
     activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
     
@@ -188,7 +176,7 @@ function animate() {
     activePost?.module.update(compositeCanvas, mouse, now, onsetPulse);
     
     requestAnimationFrame(animate);
-}
+} 
 
 // Simplified playAudio function
 function playAudio() {
@@ -199,20 +187,82 @@ function playAudio() {
     source.start(0);
 }
 
+function handlePointerDown(e) {
+    e.preventDefault();
+    const pointer = e.touches ? e.touches[0] : e;
+    
+    // Setup for tap vs drag detection
+    isDragging = false;
+    touchStartX = pointer.clientX;
+    touchStartY = pointer.clientY;
+    
+    // Start timer for the hold gesture
+    holdTimer = setTimeout(() => {
+        isHolding = true;
+        console.log("--- Hold Activated: Strobe Effect ---");
+        
+        // Override the current background with the hold effect
+        activeBackground?.module.cleanup();
+        const bgModule = allEffects['holdStrobeEffect'];
+        activeBackground = { name: 'holdStrobeEffect', module: bgModule };
+        activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+
+    }, HOLD_DURATION);
+}
+
+function handlePointerUp(e) {
+    clearTimeout(holdTimer); // Always clear the timer on release
+
+    if (isHolding) {
+        // If the hold was active, release it and switch to a new random effect
+        isHolding = false;
+        console.log("--- Hold Released ---");
+        switchEffects();
+    } else if (!isDragging) {
+        // If it wasn't a hold and wasn't a drag, it was a tap/click
+        switchEffects();
+    }
+    
+    isDragging = false; // Reset for the next interaction
+}
+
+function handlePointerMove(e) {
+    e.preventDefault();
+    const pointer = e.touches ? e.touches[0] : e;
+    
+    // This now updates the REAL mouse position
+    physicalMouse.x = pointer.clientX;
+    physicalMouse.y = pointer.clientY;
+    
+    // The drag detection logic from the hold gesture remains the same
+    if (e.touches) {
+        const dx = pointer.clientX - touchStartX;
+        const dy = pointer.clientY - touchStartY;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) { 
+            isDragging = true;
+            clearTimeout(holdTimer);
+        }
+    }
+}
+
 async function init() {
     resizeCanvases();
     window.addEventListener('resize', resizeCanvases);
-    
-    function handlePointerMove(e) {
-        e.preventDefault();
-        const pointer = e.touches ? e.touches[0] : e;
-        mouse.x = pointer.clientX;
-        mouse.y = pointer.clientY;
-    }
-    mainCanvas.addEventListener('mousemove', handlePointerMove);
-    mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
-    mainCanvas.addEventListener('touchstart', handlePointerMove, { passive: false });
 
+    // --- NEW: Combined Event Handlers for Tap, Drag, and Hold ---
+    const DRAG_THRESHOLD = 10;
+    // --- Event Listeners for both Mobile and Desktop ---
+    mainCanvas.addEventListener('mousedown', handlePointerDown);
+    mainCanvas.addEventListener('mouseup', handlePointerUp);
+    mainCanvas.addEventListener('mouseleave', handlePointerUp);
+    mainCanvas.addEventListener('mousemove', handlePointerMove);
+
+    mainCanvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+    mainCanvas.addEventListener('touchend', handlePointerUp);
+    mainCanvas.addEventListener('touchcancel', handlePointerUp);
+    mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+
+    // --- (The rest of the loading logic remains exactly the same) ---
     const assetsToLoad = [
         ...mediaManager.imageUrls,
         'assets/Blackout Midnight.ttf',
@@ -234,7 +284,7 @@ async function init() {
         updateProgress();
     });
 
-    const lyricsPromise = fetch('assets/lyrics.srt').then(res => res.text()).then(text => {
+    const lyricsPromise = fetch('assets/TEST.srt').then(res => res.text()).then(text => {
         lyrics = parseSRT(text);
         updateProgress();
     });
@@ -250,33 +300,26 @@ async function init() {
         updateProgress();
     });
     
-    // The media manager now handles all image loading and progress updates itself
-    const mediaPromise = mediaManager.load(updateProgress);
-
-    await Promise.all([fontPromise, lyricsPromise, audioPromise, onsetsPromise, mediaPromise]);
+    await mediaManager.load(updateProgress);
 
     console.log("All assets loaded!");
     
-    // --- Pre-setup the first effects ---
-    const initialBgEffectName = 'imageCollage'; 
-    const initialFgEffectName = foregroundEffectNames[0];
-    const initialPostEffectName = postEffectNames[0];
-
+    const initialBgEffectName = backgroundEffectNames[0];
     const bgModule = allEffects[initialBgEffectName];
     activeBackground = { name: initialBgEffectName, module: bgModule };
-    // The setup function now correctly receives the pre-loaded images
     activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
     
+    const initialFgEffectName = foregroundEffectNames[0];
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
     activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
 
+    const initialPostEffectName = postEffectNames[0];
     const postModule = allEffects[initialPostEffectName];
     activePost = { name: initialPostEffectName, module: postModule };
     activePost.module.setup(mainCanvas);
     console.log(`Initial effects pre-loaded: ${activeBackground.name}, ${activeForeground.name}, ${activePost.name}`);
 
-    // --- UI Transition and Start ---
     loadingOverlay.style.opacity = 0;
     setTimeout(() => {
         loadingOverlay.classList.add('hidden');
@@ -291,6 +334,7 @@ async function init() {
             
             playAudio();
             startTime = performance.now();
+            switchEffects();
             animate(); 
 
         }, 500);
@@ -308,6 +352,47 @@ function parseSRT(srtContent) {
         const text = lines.slice(lines.indexOf(timeLine) + 1).join(' ').trim();
         return { startTime: timeToMs(start), endTime: timeToMs(end), text };
     }).filter(Boolean);
+}
+
+function switchEffects() {
+    // Don't switch effects if the user is in the middle of a hold gesture
+    if (isHolding) return;
+
+    console.log("--- Switching effects ---");
+    
+    // Switch Background Effect
+    const currentBgEffectName = activeBackground?.name || '';
+    let nextBgEffectName;
+    do {
+        nextBgEffectName = backgroundEffectNames[Math.floor(Math.random() * backgroundEffectNames.length)];
+    } while (backgroundEffectNames.length > 1 && nextBgEffectName === currentBgEffectName);
+
+    activeBackground?.module.cleanup();
+    const bgModule = allEffects[nextBgEffectName];
+    activeBackground = { name: nextBgEffectName, module: bgModule };
+    activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+    console.log(`Switched background to: ${activeBackground.name}`);
+
+    // --- Switch Foreground (Text) Effect ---
+    const currentFgEffectName = activeForeground?.name || '';
+    let nextFgEffectName;
+    do {
+        nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
+    } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
+
+    activeForeground?.module.cleanup();
+    const fgModule = allEffects[nextFgEffectName];
+    activeForeground = { name: nextFgEffectName, module: fgModule };
+    activeForeground.module.setup(foregroundCanvas, currentLyric);
+    console.log(`Switched foreground to: ${activeForeground.name}`);
+    
+    // --- Switch Post-Processing Effect ---
+    const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
+    activePost?.module.cleanup();
+    const postModule = allEffects[nextPostEffectName];
+    activePost = { name: nextPostEffectName, module: postModule };
+    activePost.module.setup(mainCanvas);
+    console.log(`Switched post-effect to: ${activePost.name}`);
 }
 
 init().catch(err => console.error("Initialization failed:", err));

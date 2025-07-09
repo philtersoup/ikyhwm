@@ -1,29 +1,32 @@
-import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+// At the top of generator.js
+const BUCKET_PUBLIC_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
 
+import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
 const mediaManager = {
     images: [],
     imageUrls: [
-        'assets/images/DSCF4317.JPG', 'assets/images/DSCF4379.JPG', 'assets/images/DSCF7135.jpg', 
-        'assets/images/DSCF8082.jpg', 'assets/images/DSCF8191.jpg', 'assets/images/DSCF4325.JPG', 
-        'assets/images/DSCF6856.jpg', 'assets/images/DSCF7136.jpg', 'assets/images/DSCF8084.jpg', 
-        'assets/images/DSCF8196.jpg', 'assets/images/DSCF4327.JPG', 'assets/images/DSCF6873.jpg', 
-        'assets/images/DSCF7137.jpg', 'assets/images/DSCF8123.jpg', 'assets/images/DSCF8206.jpg', 
-        'assets/images/DSCF4342.JPG', 'assets/images/DSCF6875.jpg', 'assets/images/DSCF7138.jpg', 
-        'assets/images/DSCF8138.jpg', 'assets/images/DSCF8209.jpg', 'assets/images/DSCF4355.JPG', 
-        'assets/images/DSCF7100.jpg', 'assets/images/DSCF7142.jpg', 'assets/images/DSCF8153.jpg', 
-        'assets/images/DSCF8211.jpg', 'assets/images/DSCF4366.JPG', 'assets/images/DSCF7112.jpg', 
-        'assets/images/DSCF7143.jpg', 'assets/images/DSCF8154.jpg', 'assets/images/DSCF8276.jpg', 
-        'assets/images/DSCF4372.JPG', 'assets/images/DSCF7119.jpg', 'assets/images/DSCF7147.jpg', 
-        'assets/images/DSCF8176.jpg', 'assets/images/DSCF8278.jpg', 'assets/images/DSCF4374.JPG', 
-        'assets/images/DSCF7132.jpg', 'assets/images/DSCF7151.jpg', 'assets/images/DSCF8179.jpg', 
-        'assets/images/DSCF4375.JPG', 'assets/images/DSCF7133.jpg', 'assets/images/DSCF7154.jpg', 
-        'assets/images/DSCF8181.jpg'
-    ],
+        'DSCF4317.jpg', 'DSCF4379.jpg', 'DSCF7135.jpg', 
+        'DSCF8082.jpg', 'DSCF8191.jpg', 'DSCF4325.jpg', 
+        'DSCF6856.jpg', 'DSCF7136.jpg', 'DSCF8084.jpg', 
+        'DSCF8196.jpg', 'DSCF4327.jpg', 'DSCF6873.jpg', 
+        'DSCF7137.jpg', 'DSCF8123.jpg', 'DSCF8206.jpg', 
+        'DSCF4342.jpg', 'DSCF6875.jpg', 'DSCF7138.jpg', 
+        'DSCF8138.jpg', 'DSCF8209.jpg', 'DSCF4355.jpg', 
+        'DSCF7100.jpg', 'DSCF7142.jpg', 'DSCF8153.jpg', 
+        'DSCF8211.jpg', 'DSCF4366.jpg', 'DSCF7112.jpg', 
+        'DSCF7143.jpg', 'DSCF8154.jpg', 'DSCF8276.jpg', 
+        'DSCF4372.jpg', 'DSCF7119.jpg', 'DSCF7147.jpg', 
+        'DSCF8176.jpg', 'DSCF8278.jpg', 'DSCF4374.jpg', 
+        'DSCF7132.jpg', 'DSCF7151.jpg', 'DSCF8179.jpg', 
+        'DSCF4375.jpg', 'DSCF7133.jpg', 'DSCF7154.jpg', 
+        'DSCF8181.jpg'
+    ].map(filename => `${BUCKET_PUBLIC_URL}/images/${filename}`),
     async load(updateProgress) {
         const imagePromises = this.imageUrls.map(url => 
             new Promise((resolve, reject) => {
                 const img = new Image();
+                img.crossOrigin = "Anonymous";
                 img.onload = () => {
                     updateProgress();
                     resolve(img);
@@ -296,11 +299,12 @@ async function init() {
     mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
 
     // --- (The rest of the loading logic remains exactly the same) ---
-    const assetsToLoad = [
+   const assetsToLoad = [
         ...mediaManager.imageUrls,
-        'assets/Blackout Midnight.ttf',
-        'assets/audio/IKYHWM.mp3',
-        'assets/audio/IKYHWM_data.json',
+        `${BUCKET_PUBLIC_URL}/Blackout%20Midnight.ttf`,
+        `${BUCKET_PUBLIC_URL}/audio/IKYHWM.mp3`,
+        `${BUCKET_PUBLIC_URL}/audio/IKYHWM_data.json`,
+        `${BUCKET_PUBLIC_URL}/TEST.srt`, // Added SRT to correctly count total assets
     ];
     const totalAssets = assetsToLoad.length;
     let loadedAssets = 0;
@@ -312,23 +316,27 @@ async function init() {
         progressPercent.innerText = `${percent}%`;
     };
 
-    const fontPromise = new FontFace('Blackout', 'url("assets/Blackout Midnight.ttf")').load().then(font => {
+    // Correct: Use backticks and proper url() syntax
+    const fontPromise = new FontFace('Blackout', `url("${BUCKET_PUBLIC_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
         document.fonts.add(font);
         updateProgress();
     });
 
-    const lyricsPromise = fetch('assets/TEST.srt').then(res => res.text()).then(text => {
+    // Correct: Use backticks
+    const lyricsPromise = fetch(`${BUCKET_PUBLIC_URL}/TEST.srt`).then(res => res.text()).then(text => {
         lyrics = parseSRT(text);
         updateProgress();
     });
-    
-    const onsetsPromise = fetch('assets/audio/IKYHWM_data.json').then(res => res.json()).then(data => {
+
+    // Correct: Use backticks
+    const onsetsPromise = fetch(`${BUCKET_PUBLIC_URL}/audio/IKYHWM_data.json`).then(res => res.json()).then(data => {
         onsetData = data;
         updateProgress();
     });
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const audioPromise = fetch('assets/audio/IKYHWM.mp3').then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
+    // Correct: Use backticks
+    const audioPromise = fetch(`${BUCKET_PUBLIC_URL}/audio/IKYHWM.mp3`).then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
         audioBuffer = decoded;
         updateProgress();
     });
@@ -342,7 +350,7 @@ async function init() {
     activeBackground = { name: initialBgEffectName, module: bgModule };
     activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
     
-    const initialFgEffectName = foregroundEffectNames[3];
+    const initialFgEffectName = foregroundEffectNames[2];
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
     activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");

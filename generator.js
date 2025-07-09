@@ -113,6 +113,7 @@ let activeForeground = null, activePost = null;
 let physicalMouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 }; // Tracks the real cursor
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 }; // Tracks the smoothed position
 let audioContext, audioBuffer;
+let currentAudioSource = null; 
 
 let isDragging = false;
 let touchStartX = 0;
@@ -152,7 +153,18 @@ function resizeCanvases() {
 
 function animate() {
     const now = performance.now();
-    const elapsedSeconds = (now - startTime) / 1000;
+    let elapsedSeconds = (now - startTime) / 1000;
+
+    // --- NEW: Loop Detection and Reset Logic ---
+    // Check if the audio buffer exists and if the song has completed a loop
+    // audioBuffer.duration
+    if (audioBuffer && elapsedSeconds >= audioBuffer.duration) {
+        startTime = now;      // Reset the main timer to the current moment
+        elapsedSeconds = 0;   // Reset elapsed time for the current frame
+        nextOnsetIndex = 0;   // Reset the beat tracker
+        playAudio(); // Add this line to restart the audio
+    }
+    // --- END NEW ---
 
     // --- NEW: Add Mouse Smoothing / Easing ---
     // The smoothed mouse position gently "chases" the actual cursor position.
@@ -216,11 +228,19 @@ compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
 
 // Simplified playAudio function
 function playAudio() {
+    // If there's already a song playing, stop it
+    if (currentAudioSource) {
+        currentAudioSource.stop();
+    }
+    
+    // Create a new audio source and play it
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    source.loop = true;
     source.start(0);
+
+    // Keep track of the new source
+    currentAudioSource = source;
 }
 
 function handlePointerDown(e) {

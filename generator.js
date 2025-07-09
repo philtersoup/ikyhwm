@@ -73,6 +73,22 @@ const allEffects = {
     rgbSplit,
 };
 
+const effectScenes = [
+    { bg: 'blackBackground',         fg: 'hourglassTiling' },
+    { bg: 'blackBackground',        fg: 'spiralVortex' },
+    { bg: 'perspectiveTunnelCollage', fg: 'layeredWarpText' },
+    { bg: 'blackBackground',        fg: 'layeredWarpText' },
+    { bg: 'perspectiveTunnelCollage', fg: 'simpleTunnel' },
+    { bg: 'fallingPolaroidsCollage', fg: 'cleanTiledText' },
+    { bg: 'fallingPolaroidsCollage', fg: 'layeredWarpText' },
+    { bg: 'imageCollage',         fg: 'hourglassTiling' },
+    { bg: 'imageCollage',            fg: 'simpleTunnel' },
+
+    // Add more compatible pairs
+];
+
+let lastSceneIndex = -1;
+
 // --- RANDOMIZER SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
 // const foregroundEffectNames = ['layeredWarpText'];
@@ -103,6 +119,10 @@ let touchStartY = 0;
 let holdTimer = null;
 let isHolding = false;
 const HOLD_DURATION = 500; // ms
+
+// --- Lyric fade-in variables ---
+const FADE_IN_DURATION = 5; // ms
+let lastLyricChangeTime = -Infinity;
 
 
 // --- Beat tracking variables ---
@@ -148,7 +168,7 @@ function animate() {
         if (elapsedSeconds >= nextOnset.time) {
             pulseTarget = nextOnset.strength; 
             nextOnsetIndex++;
-            if (Math.random() < 0.15) {
+            if (nextOnset.strength > 0 && Math.random() < 0.15) {
                 switchEffects();
             }
         }
@@ -160,6 +180,8 @@ function animate() {
     if (newText !== currentLyric) {
         currentLyric = newText;
         activeForeground?.module.onLyricChange?.(currentLyric);
+        // Record the time of the change to start the fade
+        lastLyricChangeTime = now;
     }
 
     // RENDER PIPELINE
@@ -167,8 +189,19 @@ function animate() {
     activeBackground?.module.update(mouse, now, onsetPulse);
     activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
     
-    compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+    
+    // Calculate fade-in opacity
+    const timeSinceChange = now - lastLyricChangeTime;
+    const fadeInOpacity = Math.min(1.0, timeSinceChange / FADE_IN_DURATION);
+
+    // Apply the fade and draw the foreground
+    compositeCtx.globalAlpha = fadeInOpacity;
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
+    
+    // Reset alpha before drawing the background
+    compositeCtx.globalAlpha = 1.0; 
+    
     compositeCtx.globalCompositeOperation = 'screen';
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
     compositeCtx.globalCompositeOperation = 'source-over';
@@ -304,12 +337,12 @@ async function init() {
 
     console.log("All assets loaded!");
     
-    const initialBgEffectName = backgroundEffectNames[0];
+    const initialBgEffectName = backgroundEffectNames[3];
     const bgModule = allEffects[initialBgEffectName];
     activeBackground = { name: initialBgEffectName, module: bgModule };
     activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
     
-    const initialFgEffectName = foregroundEffectNames[0];
+    const initialFgEffectName = foregroundEffectNames[3];
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
     activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
@@ -334,7 +367,7 @@ async function init() {
             
             playAudio();
             startTime = performance.now();
-            switchEffects();
+            // switchEffects();
             animate(); 
 
         }, 500);
@@ -355,31 +388,27 @@ function parseSRT(srtContent) {
 }
 
 function switchEffects() {
-    // Don't switch effects if the user is in the middle of a hold gesture
     if (isHolding) return;
-
     console.log("--- Switching effects ---");
-    
-    // Switch Background Effect
-    const currentBgEffectName = activeBackground?.name || '';
-    let nextBgEffectName;
-    do {
-        nextBgEffectName = backgroundEffectNames[Math.floor(Math.random() * backgroundEffectNames.length)];
-    } while (backgroundEffectNames.length > 1 && nextBgEffectName === currentBgEffectName);
 
+    // --- IMPROVEMENT: Pick a curated scene ---
+    let nextSceneIndex;
+    do {
+        nextSceneIndex = Math.floor(Math.random() * effectScenes.length);
+    } while (effectScenes.length > 1 && nextSceneIndex === lastSceneIndex);
+    lastSceneIndex = nextSceneIndex;
+    
+    const scene = effectScenes[nextSceneIndex];
+    const nextBgEffectName = scene.bg;
+    const nextFgEffectName = scene.fg;
+    // --- END IMPROVEMENT ---
+    
     activeBackground?.module.cleanup();
     const bgModule = allEffects[nextBgEffectName];
     activeBackground = { name: nextBgEffectName, module: bgModule };
     activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
     console.log(`Switched background to: ${activeBackground.name}`);
-
-    // --- Switch Foreground (Text) Effect ---
-    const currentFgEffectName = activeForeground?.name || '';
-    let nextFgEffectName;
-    do {
-        nextFgEffectName = foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
-    } while (foregroundEffectNames.length > 1 && nextFgEffectName === currentFgEffectName);
-
+    
     activeForeground?.module.cleanup();
     const fgModule = allEffects[nextFgEffectName];
     activeForeground = { name: nextFgEffectName, module: fgModule };

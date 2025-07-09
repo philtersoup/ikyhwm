@@ -1,3 +1,15 @@
+// --- Font Size Helper ---
+function getSafeFontSize(ctx, text, maxFontSize, maxWidth) {
+    ctx.font = `${maxFontSize}px 'Blackout'`;
+    const textWidth = ctx.measureText(text).width;
+
+    // If text is wider than the allowed space, scale the font size down
+    if (textWidth > maxWidth) {
+        const scaleFactor = maxWidth / textWidth;
+        return maxFontSize * scaleFactor;
+    }
+    return maxFontSize;
+}
 // --- GLSL Shader Helpers ---
 function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -38,6 +50,14 @@ const postEffectPrototype = {
         const vertexShader = createShader(gl, gl.VERTEX_SHADER, defaultVertexShader);
         const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, this.fragmentShaderSource);
         this.program = createProgram(gl, vertexShader, fragmentShader);
+
+        // Create and configure the texture a single time
+        this.texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
         this.locations = {
             position: gl.getAttribLocation(this.program, 'a_position'),
             resolution: gl.getUniformLocation(this.program, 'u_resolution'),
@@ -53,12 +73,11 @@ const postEffectPrototype = {
     update(sourceCanvas, mouse, time, onsetPulse = 0) {
         const gl = this.gl;
         if (!gl) return;
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
+
+        // Bind the existing texture and update its content, instead of creating a new one
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
         gl.useProgram(this.program);
         gl.enableVertexAttribArray(this.locations.position);
         gl.bindBuffer(gl.ARRAY_BUFFER, gl.getParameter(gl.ARRAY_BUFFER_BINDING));
@@ -68,12 +87,15 @@ const postEffectPrototype = {
         gl.uniform1i(this.locations.texture, 0);
         gl.uniform1f(this.locations.onsetPulse, onsetPulse);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
-        gl.deleteTexture(texture);
     },
     cleanup() {
         if (this.gl) {
             if (this.program) this.gl.deleteProgram(this.program);
-            this.program = null; this.gl = null;
+            // Delete the texture when the effect is cleaned up
+            if (this.texture) this.gl.deleteTexture(this.texture);
+            this.program = null; 
+            this.gl = null;
+            this.texture = null;
         }
     }
 };
@@ -156,7 +178,7 @@ export const rgbSplit = {
         uniform float u_onsetPulse;
         void main() {
             vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-            float offset = 0.0005 + u_onsetPulse * 0.01;
+            float offset = 0.002 + u_onsetPulse * 0.01;
             float r = texture2D(u_texture, vec2(uv.x + offset, 1.0 - uv.y)).r;
             float g = texture2D(u_texture, vec2(uv.x, 1.0 - uv.y)).g;
             float b = texture2D(u_texture, vec2(uv.x - offset, 1.0 - uv.y)).b;
@@ -461,49 +483,68 @@ export const holdStrobeEffect = {
     onLyricChange() {},
 
     update(mouse, time, onsetPulse = 0) {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    const canvas = ctx.canvas;
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
 
-    // The rendering logic is now specific to the mode
-    switch (this.mode) {
-        case 'strobe':
-        case 'ramp':
-            // For modes that use fading trails, draw the transparent background first
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // The rendering logic is now specific to the mode
+        switch (this.mode) {
+            case 'strobe':
+            case 'ramp':
+                // For modes that use fading trails, draw the transparent background first
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = 'white';
+                if (this.mode === 'strobe' && onsetPulse > 0.5) {
+                    ctx.globalAlpha = onsetPulse;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                } else if (this.mode === 'ramp') {
+                    ctx.globalAlpha = onsetPulse;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                break;
             
-            ctx.fillStyle = 'white';
-            if (this.mode === 'strobe' && onsetPulse > 0.5) {
-                ctx.globalAlpha = onsetPulse;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            } else if (this.mode === 'ramp') {
-                ctx.globalAlpha = onsetPulse;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            break;
-        
-        case 'wipe':
-            // For the wipe, start with a clean, solid black background
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            case 'wipe':
+                // The duration of one full wipe cycle (white followed by black)
+                const wipeCycleDuration = 215; 
+                const progress = (time % wipeCycleDuration) / wipeCycleDuration; // A value from 0.0 to 1.0
 
-            // Then draw a solid white wipe rectangle on top
-            const wipeWidth = canvas.width * ((time * 0.003) % 1);
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, wipeWidth, canvas.height);
-            break;
-    }
+                // Phase 1: White wipe (from 0% to 50% of the cycle)
+                if (progress < 0.5) {
+                    // Normalize progress for this phase (0.0 to 1.0)
+                    const phaseProgress = progress * 2;
+                    const wipeWidth = canvas.width * phaseProgress;
+                    
+                    // Draw black background and the white wipe on top
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, wipeWidth, canvas.height);
+                } 
+                // Phase 2: Black wipe (from 50% to 100% of the cycle)
+                else {
+                    // Normalize progress for this phase (0.0 to 1.0)
+                    const phaseProgress = (progress - 0.5) * 2;
+                    const wipeWidth = canvas.width * phaseProgress;
+                    
+                    // Draw white background and the black wipe on top
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, wipeWidth, canvas.height);
+                }
+                break;
+        }
 
-    // Reset global alpha at the end to be safe
-    ctx.globalAlpha = 1.0;
+        // Reset global alpha at the end to be safe
+        ctx.globalAlpha = 1.0;
     },
     
     cleanup() {
         this.ctx = null;
     }
 };
-
 // =================================================================
 // FOREGROUND (TEXT) EFFECTS
 // =================================================================
@@ -513,48 +554,61 @@ export const cleanTiledText = {
     setup(canvas) { this.ctx = canvas.getContext('2d'); },
     onLyricChange() {},
     update(mouse, time, lyric, onsetPulse = 0) {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    const canvas = ctx.canvas;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
-    
-    const baseSize = Math.min(canvas.width, canvas.height);
-    const baseFontSize = baseSize / 10;
-    const fontSize = baseFontSize + (onsetPulse * (baseFontSize * 0.4));
-    ctx.font = `${fontSize}px 'Blackout'`;
-    
-    const textMetrics = ctx.measureText(textToRender);
-    const spacingX = textMetrics.width * 1.25;
-    const spacingY = baseFontSize * 1.5;
-    if (spacingX === 0) return;
+        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
+        const padding = canvas.width * 0.1; // 10% padding
+        
+        // Calculate a responsive base font size
+        const baseSize = Math.min(canvas.width, canvas.height);
+        let maxFontSize = baseSize / 10;
+        
+        // Use the helper to get a safe font size that prevents cropping
+        const fontSize = getSafeFontSize(ctx, textToRender, maxFontSize, canvas.width - padding) + (onsetPulse * (maxFontSize * 0.4));
+        ctx.font = `${fontSize}px 'Blackout'`;
+        
+        const textMetrics = ctx.measureText(textToRender);
+        const spacingX = textMetrics.width * 1.25;
+        const spacingY = fontSize * 1.5; // Use the final font size for spacing
+        if (spacingX === 0) return;
 
-    ctx.save();
-    const skewX = (mouse.x - canvas.width / 2) * 0.001;
-    const skewY = (mouse.y - canvas.height / 2) * 0.001;
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.transform(1, skewY, skewX, 1, 0, 0);
-    ctx.translate(-canvas.width / 2, -canvas.height / 2);
+        ctx.save();
+        const skewX = (mouse.x - canvas.width / 2) * 0.001;
+        const skewY = (mouse.y - canvas.height / 2) * 0.001;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.transform(1, skewY, skewX, 1, 0, 0);
+        ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
-    ctx.fillStyle = 'white';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Corrected tiling loop without the conflicting time offset
-    for (let y = spacingY / 2; y < canvas.height + spacingY; y += spacingY) {
-        for (let x = spacingX / 2; x < canvas.width + spacingX; x += spacingX) {
-            ctx.fillText(textToRender, x, y);
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const numRows = Math.ceil(canvas.height / spacingY) + 2;
+        const numCols = Math.ceil(canvas.width / spacingX) + 2;
+        const yOffset = (canvas.height - (numRows - 2) * spacingY) / 2;
+        const xOffset = (canvas.width - (numCols - 2) * spacingX) / 2;
+
+        for (let y = -spacingY; y < canvas.height + spacingY; y += spacingY) {
+            for (let x = -spacingX; x < canvas.width + spacingX; x += spacingX) {
+                ctx.fillText(textToRender, x, y);
+            }
         }
-    }
-    ctx.restore();
+        ctx.restore();
     },
     cleanup() { this.ctx = null; }
 };
 
 export const spiralVortex = {
-    ctx: null, rings: [], fov: 400, ringRadius: 700, currentLyric: "",
-    setup(canvas, text) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); },
+    ctx: null, rings: [], fov: 400, currentLyric: "",
+    setup(canvas, text) { 
+        this.ctx = canvas.getContext('2d'); 
+        // Make radius responsive
+        this.ringRadius = Math.min(canvas.width, canvas.height) * 0.8;
+        this.onLyricChange(text); 
+    },
     onLyricChange(lyric) {
         this.rings = [];
         this.currentLyric = lyric;
@@ -566,43 +620,46 @@ export const spiralVortex = {
         }
     },
     update(mouse, time, lyric, onsetPulse = 0) {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const canvas = ctx.canvas;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if(this.currentLyric !== lyric){
-         this.onLyricChange(lyric);
-    }
+        if(this.currentLyric !== lyric){
+            this.onLyricChange(lyric);
+        }
 
-    const mouseXNorm = (mouse.x - window.innerWidth/2) / (window.innerWidth/2);
-    const moveSpeed = 0.1 + onsetPulse * 0.005;
+        const mouseXNorm = (mouse.x - canvas.width/2) / (canvas.width/2);
+        const moveSpeed = 0.1 + onsetPulse * 0.005;
+        const rotationSpeed = (mouseXNorm * 0.002);
 
-    // --- CHANGE: Drastically reduced the rotation speed multipliers ---
-    const rotationSpeed = (mouseXNorm * 0.002);
-
-    this.rings.forEach(r => {
-        const waveOffset = Math.sin(time*0.002 + r.ringIndex*0.5) * 100;
-        r.z = (((r.originalZ + time*moveSpeed + waveOffset) % 1000) + 1000) % 1000;
-        r.rotation += rotationSpeed * (r.ringIndex % 2 === 0 ? 1 : -1);
-    });
-    
-    this.rings.sort((a,b) => b.z - a.z).forEach(r => {
-        const scale = this.fov / (this.fov + r.z); if (scale < 0.05) return;
-        const size = this.ringRadius*2*scale;
-        const x = (window.innerWidth/2 - size/2) + (mouse.x - window.innerWidth/2)*0.5*scale;
-        const y = (window.innerHeight/2 - size/2) + (mouse.y - window.innerHeight/2)*0.5*scale;
-        ctx.globalAlpha = Math.min(scale*1.2, 0.9);
-        ctx.save();
-        ctx.translate(x+size/2, y+size/2); ctx.rotate(r.rotation); ctx.scale(scale, scale);
-        ctx.drawImage(r.canvas, -this.ringRadius, -this.ringRadius);
-        ctx.restore();
-    });
-    ctx.globalAlpha = 1.0;
-},
+        this.rings.forEach(r => {
+            const waveOffset = Math.sin(time*0.002 + r.ringIndex*0.5) * 100;
+            r.z = (((r.originalZ + time*moveSpeed + waveOffset) % 1000) + 1000) % 1000;
+            r.rotation += rotationSpeed * (r.ringIndex % 2 === 0 ? 1 : -1);
+        });
+        
+        this.rings.sort((a,b) => b.z - a.z).forEach(r => {
+            const scale = this.fov / (this.fov + r.z); if (scale < 0.05) return;
+            const size = this.ringRadius*2*scale;
+            const x = (canvas.width/2 - size/2) + (mouse.x - canvas.width/2)*0.5*scale;
+            const y = (canvas.height/2 - size/2) + (mouse.y - canvas.height/2)*0.5*scale;
+            ctx.globalAlpha = Math.min(scale*1.2, 0.9);
+            ctx.save();
+            ctx.translate(x+size/2, y+size/2); ctx.rotate(r.rotation); ctx.scale(scale, scale);
+            ctx.drawImage(r.canvas, -this.ringRadius, -this.ringRadius);
+            ctx.restore();
+        });
+        ctx.globalAlpha = 1.0;
+    },
     createRingCanvas(text, ringIndex) {
         const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
         const size = this.ringRadius * 2; canvas.width = size; canvas.height = size;
-        const fontSize = 60 + (ringIndex * 4);
+        
+        // Make font size responsive
+        const baseSize = Math.min(this.ctx.canvas.width, this.ctx.canvas.height);
+        const fontSize = (baseSize / 20) + (ringIndex * 4);
+        
         ctx.font = `${fontSize}px 'Blackout'`;
         Object.assign(ctx, {fillStyle:'white',textAlign:'center',textBaseline:'middle',shadowBlur:3,shadowColor:'rgba(0,0,0,0.5)'});
         ctx.translate(this.ringRadius, this.ringRadius); ctx.rotate(ringIndex * 0.1);
@@ -630,36 +687,41 @@ export const spiralVortex = {
 };
 
 export const simpleTunnel = {
-    ctx: null, rows: [], baseFontSize: 80, currentLyric: "",
+    ctx: null, rows: [], currentLyric: "",
     setup(canvas, text) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); },
     onLyricChange(lyric) {
         this.rows = [];
         this.currentLyric = lyric;
         const textToRender = (lyric && lyric.trim() !== "") ? lyric : " ";
         const uppercaseText = (textToRender.toUpperCase() + " ").repeat(15);
-        const numRows = 30; const rowHeight = window.innerHeight / numRows;
+        const numRows = 30; 
+        const rowHeight = this.ctx.canvas.height / numRows;
         for (let i = 0; i < numRows + 1; i++) {
             this.rows.push({ text: uppercaseText, y: i * rowHeight, direction: (i % 2 === 0) ? 1 : -1 });
         }
     },
     update(mouse, time, lyric, onsetPulse = 0) {
         const ctx = this.ctx; if(!ctx) return;
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        const canvas = ctx.canvas;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (this.currentLyric !== lyric) {
             this.onLyricChange(lyric);
         }
 
+        // Make baseFontSize responsive
+        const baseFontSize = Math.min(canvas.width, canvas.height) / 10;
         const timeOffset = time * 0.03;
+
         this.rows.forEach(row => {
             const distY = row.y - mouse.y;
-            const projScale = Math.min(1, Math.abs(distY) / (window.innerHeight/2));
-            const fontSize = Math.max(this.baseFontSize * 0.05, this.baseFontSize * projScale) + (onsetPulse * 30 * projScale);
+            const projScale = Math.min(1, Math.abs(distY) / (canvas.height/2));
+            const fontSize = Math.max(baseFontSize * 0.05, baseFontSize * projScale) + (onsetPulse * 30 * projScale);
             if (fontSize < 1) return;
             Object.assign(ctx, {font:`${fontSize}px 'Blackout'`,fillStyle:'white',textAlign:'center',globalAlpha:projScale});
-            const warp = (mouse.x - window.innerWidth / 2) * (1 - projScale);
+            const warp = (mouse.x - canvas.width / 2) * (1 - projScale);
             const scroll = (timeOffset * row.direction) % 200;
-            const finalX = window.innerWidth / 2 + scroll + warp;
+            const finalX = canvas.width / 2 + scroll + warp;
             const finalY = mouse.y + distY * (projScale + 0.4);
             ctx.fillText(row.text, finalX, finalY);
         });
@@ -679,7 +741,10 @@ export const hourglassTiling = {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
-        const fontSize = 30;
+        
+        // Make font size responsive
+        const baseSize = Math.min(canvas.width, canvas.height);
+        const fontSize = baseSize / 15; // Adjusted for this effect
         const rowHeight = fontSize * 1.2;
         ctx.font = `${fontSize}px 'Blackout'`;
         ctx.fillStyle = 'white';
@@ -690,7 +755,7 @@ export const hourglassTiling = {
 
         if (textWidth === 0) return;
 
-        for (let y = 0; y < canvas.height; y += rowHeight) {
+        for (let y = 0; y < canvas.height + rowHeight; y += rowHeight) {
             const distY = Math.abs(y - mouse.y);
             const widthFactor = Math.pow(distY / (canvas.height / 2), 0.8) + (onsetPulse * 0.3);
             const rowWidth = canvas.width * widthFactor;
@@ -712,7 +777,6 @@ export const layeredWarpText = {
         this.ctx = canvas.getContext('2d');
     },
     onLyricChange() {},
-    // In effects.js, replace the update method for layeredWarpText
     update(mouse, time, lyric, onsetPulse = 0) {
         if (!this.ctx) return;
         const ctx = this.ctx;
@@ -721,8 +785,13 @@ export const layeredWarpText = {
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
         
+        // Define a responsive max font size
         const baseSize = Math.min(canvas.width, canvas.height);
-        const fontSize = baseSize / 7;
+        let maxFontSize = baseSize / 7;
+        
+        // Use helper to get a safe font size, leaving 5% padding on each side
+        const fontSize = getSafeFontSize(ctx, textToRender, maxFontSize, canvas.width * 0.9);
+        
         ctx.font = `${fontSize}px 'Blackout'`;
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
@@ -738,17 +807,11 @@ export const layeredWarpText = {
         for (let i = visibleLayers; i >= 0; i--) {
             ctx.save();
             
-            const progress = i / totalLayers; // A value from 0 to 1 representing layer depth
+            const progress = i / totalLayers;
             ctx.globalAlpha = (1 - progress) * 0.75;
 
-            // --- NEW: Offset & Warp Calculation ---
-            // 1. Create a strong, accelerating downward motion for the Y-axis.
             let yOffset = Math.pow(progress, 2) * 300;
-            
-            // 2. Create a more subtle sideways motion for the X-axis.
             let xOffset = progress * -80;
-            
-            // 3. Keep the mouse interaction.
             const mouseWarp = (mouse.x - centerX) * progress * 0.3;
             xOffset += mouseWarp;
 

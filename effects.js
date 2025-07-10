@@ -178,7 +178,7 @@ export const rgbSplit = {
         uniform float u_onsetPulse;
         void main() {
             vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-            float offset = 0.002 + u_onsetPulse * 0.01;
+            float offset = 0.001 + u_onsetPulse * 0.02;
             float r = texture2D(u_texture, vec2(uv.x + offset, 1.0 - uv.y)).r;
             float g = texture2D(u_texture, vec2(uv.x, 1.0 - uv.y)).g;
             float b = texture2D(u_texture, vec2(uv.x - offset, 1.0 - uv.y)).b;
@@ -348,7 +348,6 @@ export const fallingPolaroidsCollage = {
         this.loaded = true;
     },
     onLyricChange() {},
-    // In effects.js, replace the update method for fallingPolaroidsCollage
     update(mouse, time, onsetPulse = 0) {
         if (!this.ctx || !this.loaded || this.images.length === 0) return;
 
@@ -357,35 +356,38 @@ export const fallingPolaroidsCollage = {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        if (onsetPulse > 0.1) {
-            const img = this.images[Math.floor(Math.random() * this.images.length)];
+        // On a strong beat, spawn a "bunch" of new polaroids
+        if (onsetPulse > 0.2) {
+            const numToSpawn = 1 + Math.floor(Math.random() * 4); // Spawn 1 to 4 at a time
 
-            // --- NEW: Square Cropping Logic ---
-            // 1. Find the shorter side of the source image to define the max crop size.
-            const shorterSide = Math.min(img.width, img.height);
+            for (let i = 0; i < numToSpawn; i++) {
+                const img = this.images[Math.floor(Math.random() * this.images.length)];
 
-            // 2. Define the slice dimension as a percentage of the shorter side.
-            const sliceDim = shorterSide * 0.4; // Crop a square that's 40% of the shorter side.
-            const sWidth = sliceDim;
-            const sHeight = sliceDim;
+                // Cropping logic remains the same
+                const shorterSide = Math.min(img.width, img.height);
+                const sliceDim = shorterSide * 0.4;
+                const sWidth = sliceDim;
+                const sHeight = sliceDim;
+                const sx = Math.random() * (img.width - sWidth);
+                const sy = Math.random() * (img.height - sHeight);
+                // ---
 
-            // 3. Find a random valid top-left (sx, sy) coordinate for the square crop.
-            const sx = Math.random() * (img.width - sWidth);
-            const sy = Math.random() * (img.height - sHeight);
+                const angle = Math.random() * Math.PI; // Angle points downwards
+                const speed = 2 + Math.random() * 3;
 
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 4 + Math.random() * 4;
-
-            this.polaroids.push({
-                img, sx, sy, sWidth, sHeight,
-                x: canvas.width / 2,
-                y: canvas.height / 4,
-                rotation: (Math.random() - 0.5) * 0.5,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                vr: (Math.random() - 0.5) * 0.02
-            });
+                this.polaroids.push({
+                    img, sx, sy, sWidth, sHeight,
+                    x: Math.random() * canvas.width,       // Random horizontal position
+                    y: -200,                                // Start above the canvas
+                    rotation: (Math.random() - 0.5) * 0.5,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    vr: (Math.random() - 0.5) * 0.02
+                });
+            }
         }
+        
+        // --- (The rest of the physics and drawing logic remains exactly the same) ---
         
         if (this.polaroids.length > 100) {
             this.polaroids.splice(0, this.polaroids.length - 100);
@@ -408,7 +410,7 @@ export const fallingPolaroidsCollage = {
                 p.vy += forceY;
             }
             
-            p.vy += 0.1;
+            p.vy += 0.1; // Gravity
             p.vx *= 0.98;
             p.vy *= 0.98;
             
@@ -426,23 +428,23 @@ export const fallingPolaroidsCollage = {
             ctx.rotate(p.rotation);
             ctx.globalAlpha = 1.0;
             
-        const shorterSide = Math.min(canvas.width, canvas.height);
-        const polaroidFrameSize = shorterSide * 0.25; // Now 25% of the shortest screen side
+            const shorterSide = Math.min(canvas.width, canvas.height);
+            const polaroidFrameSize = shorterSide * 0.25;
 
-        const aspectRatio = p.sWidth / p.sHeight;
-        let dWidth, dHeight;
-        if (aspectRatio > 1) {
-            dWidth = polaroidFrameSize;
-            dHeight = polaroidFrameSize / aspectRatio;
-        } else {
-            dHeight = polaroidFrameSize;
-            dWidth = polaroidFrameSize * aspectRatio;
-        }
-        ctx.drawImage(p.img, p.sx, p.sy, p.sWidth, p.sHeight, -dWidth / 2, -dHeight / 2, dWidth, dHeight);
-        ctx.strokeStyle = '#ccc';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-polaroidFrameSize / 2, -polaroidFrameSize / 2, polaroidFrameSize, polaroidFrameSize);
-        ctx.restore();
+            const aspectRatio = p.sWidth / p.sHeight;
+            let dWidth, dHeight;
+            if (aspectRatio > 1) {
+                dWidth = polaroidFrameSize;
+                dHeight = polaroidFrameSize / aspectRatio;
+            } else {
+                dHeight = polaroidFrameSize;
+                dWidth = polaroidFrameSize * aspectRatio;
+            }
+            ctx.drawImage(p.img, p.sx, p.sy, p.sWidth, p.sHeight, -dWidth / 2, -dHeight / 2, dWidth, dHeight);
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(-polaroidFrameSize / 2, -polaroidFrameSize / 2, polaroidFrameSize, polaroidFrameSize);
+            ctx.restore();
         }
     },
     

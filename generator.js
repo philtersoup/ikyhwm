@@ -1,5 +1,6 @@
 // At the top of generator.js
-const BUCKET_PUBLIC_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
+const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
+// const BASE_URL = 'assets'; 
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
@@ -21,7 +22,7 @@ const mediaManager = {
         'DSCF7132.jpg', 'DSCF7151.jpg', 'DSCF8179.jpg', 
         'DSCF4375.jpg', 'DSCF7133.jpg', 'DSCF7154.jpg', 
         'DSCF8181.jpg'
-    ].map(filename => `${BUCKET_PUBLIC_URL}/images/${filename}`),
+    ].map(filename => `${BASE_URL}/images/${filename}`),
     async load(updateProgress) {
         const imagePromises = this.imageUrls.map(url => 
             new Promise((resolve, reject) => {
@@ -94,12 +95,11 @@ let lastSceneIndex = -1;
 
 // --- RANDOMIZER SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
-// const foregroundEffectNames = ['layeredWarpText'];
 const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage', 'blackBackground', 'holdStrobeEffect'];
-
 const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
 let lastSwitchTime = 0;
-
+let effectSequence = [];
+let currentEffectCue = null;
 
 // --- SETUP CANVASES ---
 const mainCanvas = document.getElementById('collage-canvas');
@@ -135,7 +135,7 @@ let nextOnsetIndex = 0;
 let onsetPulse = 0; // Will spike to the 'strength' of an onset, then decay
 let pulseTarget = 0; // This value jumps instantly on a beat
 
-let activeBackground = null; // Changed from const to let
+let activeBackground = null; 
 
 // --- UI Elements ---
 const loadingOverlay = document.getElementById('loading-overlay');
@@ -144,11 +144,28 @@ const progressPercent = document.getElementById('progress-percent');
 const audioPromptOverlay = document.getElementById('audio-prompt-overlay');
 const startButton = document.getElementById('start-button');
 
+// --- 
 function resizeCanvases() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    mainCanvas.width = backgroundCanvas.width = foregroundCanvas.width = compositeCanvas.width = w;
-    mainCanvas.height = backgroundCanvas.height = foregroundCanvas.height = compositeCanvas.height = h;
+    // Get the device's pixel ratio
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
+
+    // Get the logical viewport size
+    const logicalWidth = window.innerWidth;
+    const logicalHeight = window.innerHeight;
+
+    // An array of all canvases to be resized
+    const allCanvases = [mainCanvas, backgroundCanvas, foregroundCanvas, compositeCanvas];
+
+    allCanvases.forEach(canvas => {
+        // 1. Set the canvas's internal resolution to the full physical pixel size
+        canvas.width = logicalWidth * dpr;
+        canvas.height = logicalHeight * dpr;
+    });
+
+    // 2. Use CSS to set the canvas's display size back to the logical size
+    // This is the crucial step that makes the high-res canvas fit the screen
+    mainCanvas.style.width = `${logicalWidth}px`;
+    mainCanvas.style.height = `${logicalHeight}px`;
 }
 
 function animate() {
@@ -183,8 +200,8 @@ function animate() {
         if (elapsedSeconds >= nextOnset.time) {
             pulseTarget = nextOnset.strength; 
             nextOnsetIndex++;
-            if (nextOnset.strength > 0 && Math.random() < 0.15) {
-                switchEffects();
+            if (nextOnset.strength > 0.4 && Math.random() < 0.55) {
+                switchPostEffect();
             }
         }
     }
@@ -199,12 +216,21 @@ function animate() {
         lastLyricChangeTime = now;
     }
 
+    const activeCue = effectSequence.find(cue => elapsedSeconds >= (cue.startTime / 1000) && elapsedSeconds <= (cue.endTime / 1000));
+    if (activeCue && activeCue !== currentEffectCue) {
+        currentEffectCue = activeCue;
+        const effectNames = activeCue.text.split(',').map(name => name.trim());
+        const bgName = effectNames[1];
+        const fgName = effectNames[0]; // This can be undefined if you only specify one
+        switchEffects(bgName, fgName);
+    }
+
     // RENDER PIPELINE
     // All effects will now automatically use the new smoothed `mouse` values
     activeBackground?.module.update(mouse, now, onsetPulse);
     activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
     
-compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+    compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     
     // Calculate fade-in opacity
     const timeSinceChange = now - lastLyricChangeTime;
@@ -273,10 +299,10 @@ function handlePointerUp(e) {
         // If the hold was active, release it and switch to a new random effect
         isHolding = false;
         console.log("--- Hold Released ---");
-        switchEffects();
+        // switchEffects();
     } else if (!isDragging) {
         // If it wasn't a hold and wasn't a drag, it was a tap/click
-        switchEffects();
+        // switchEffects();
     }
     
     isDragging = false; // Reset for the next interaction
@@ -305,30 +331,22 @@ async function init() {
     resizeCanvases();
     window.addEventListener('resize', resizeCanvases);
 
-    // --- NEW: Combined Event Handlers for Tap, Drag, and Hold ---
-    const DRAG_THRESHOLD = 10;
     // --- Event Listeners for both Mobile and Desktop ---
     mainCanvas.addEventListener('mousedown', handlePointerDown);
     mainCanvas.addEventListener('mouseup', handlePointerUp);
     mainCanvas.addEventListener('mouseleave', handlePointerUp);
     mainCanvas.addEventListener('mousemove', handlePointerMove);
-
     mainCanvas.addEventListener('touchstart', handlePointerDown, { passive: false });
     mainCanvas.addEventListener('touchend', handlePointerUp);
     mainCanvas.addEventListener('touchcancel', handlePointerUp);
     mainCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
 
-    // --- (The rest of the loading logic remains exactly the same) ---
-   const assetsToLoad = [
-        ...mediaManager.imageUrls,
-        `${BUCKET_PUBLIC_URL}/Blackout%20Midnight.ttf`,
-        `${BUCKET_PUBLIC_URL}/audio/IKYHWM.mp3`,
-        `${BUCKET_PUBLIC_URL}/audio/IKYHWM_data.json`,
-        `${BUCKET_PUBLIC_URL}/TEST.srt`, // Added SRT to correctly count total assets
-    ];
-    const totalAssets = assetsToLoad.length;
+    // --- Loading Logic ---
+    const promisesToLoad = [];
+    let totalAssets = 0;
     let loadedAssets = 0;
 
+    // Use a single, reliable progress updater
     const updateProgress = () => {
         loadedAssets++;
         const percent = Math.floor((loadedAssets / totalAssets) * 100);
@@ -336,35 +354,52 @@ async function init() {
         progressPercent.innerText = `${percent}%`;
     };
 
-    // Correct: Use backticks and proper url() syntax
-    const fontPromise = new FontFace('Blackout', `url("${BUCKET_PUBLIC_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
+    // --- Setup all loading promises ---
+    const fontPromise = new FontFace('Blackout', `url("${BASE_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
         document.fonts.add(font);
         updateProgress();
     });
+    promisesToLoad.push(fontPromise);
 
-    // Correct: Use backticks
-    const lyricsPromise = fetch(`${BUCKET_PUBLIC_URL}/TEST.srt`).then(res => res.text()).then(text => {
+    const lyricsPromise = fetch(`${BASE_URL}/TEST.srt`).then(res => res.text()).then(text => {
         lyrics = parseSRT(text);
         updateProgress();
     });
+    promisesToLoad.push(lyricsPromise);
 
-    // Correct: Use backticks
-    const onsetsPromise = fetch(`${BUCKET_PUBLIC_URL}/audio/IKYHWM_data.json`).then(res => res.json()).then(data => {
+    const effectSequencePromise = fetch(`${BASE_URL}/EFFECTS.srt`).then(res => res.text()).then(text => {
+        effectSequence = parseSRT(text);
+        updateProgress();
+    });
+    promisesToLoad.push(effectSequencePromise);
+
+    const onsetsPromise = fetch(`${BASE_URL}/audio/IKYHWM_data.json`).then(res => res.json()).then(data => {
         onsetData = data;
         updateProgress();
     });
+    promisesToLoad.push(onsetsPromise);
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    // Correct: Use backticks
-    const audioPromise = fetch(`${BUCKET_PUBLIC_URL}/audio/IKYHWM.mp3`).then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
+    const audioPromise = fetch(`${BASE_URL}/audio/IKYHWM.mp3`).then(res => res.arrayBuffer()).then(buffer => audioContext.decodeAudioData(buffer)).then(decoded => {
         audioBuffer = decoded;
         updateProgress();
     });
-    
-    await mediaManager.load(updateProgress);
+    promisesToLoad.push(audioPromise);
+
+    // mediaManager.load is an async function, so it returns a promise we can track
+    const mediaPromise = mediaManager.load(updateProgress);
+    promisesToLoad.push(mediaPromise);
+
+    // Calculate total assets for the progress bar
+    // We have 5 promises + the number of images that mediaManager loads
+    totalAssets = 5 + mediaManager.imageUrls.length;
+
+    // --- Wait for EVERYTHING to load ---
+    await Promise.all(promisesToLoad);
 
     console.log("All assets loaded!");
     
+    // --- Now it's safe to set up the scene ---
     const initialBgEffectName = backgroundEffectNames[3];
     const bgModule = allEffects[initialBgEffectName];
     activeBackground = { name: initialBgEffectName, module: bgModule };
@@ -381,6 +416,7 @@ async function init() {
     activePost.module.setup(mainCanvas);
     console.log(`Initial effects pre-loaded: ${activeBackground.name}, ${activeForeground.name}, ${activePost.name}`);
 
+    // --- Show the start button ---
     loadingOverlay.style.opacity = 0;
     setTimeout(() => {
         loadingOverlay.classList.add('hidden');
@@ -392,12 +428,9 @@ async function init() {
         audioPromptOverlay.style.opacity = 0;
         setTimeout(() => {
             audioPromptOverlay.classList.add('hidden');
-            
             playAudio();
             startTime = performance.now();
-            // switchEffects();
             animate(); 
-
         }, 500);
     }, { once: true });
 }
@@ -415,36 +448,44 @@ function parseSRT(srtContent) {
     }).filter(Boolean);
 }
 
-function switchEffects() {
+function switchEffects(bgName, fgName) {
+    // Don't switch effects if the user is in the middle of a hold gesture
     if (isHolding) return;
     console.log("--- Switching effects ---");
 
-    // --- IMPROVEMENT: Pick a curated scene ---
-    let nextSceneIndex;
+    // --- Switch Background Effect ---
+    // Use the provided name, or pick a random one if none is given
+    const nextBgEffectName = bgName || backgroundEffectNames[Math.floor(Math.random() * backgroundEffectNames.length)];
+    if (activeBackground?.name !== nextBgEffectName) {
+        activeBackground?.module.cleanup();
+        const bgModule = allEffects[nextBgEffectName];
+        activeBackground = { name: nextBgEffectName, module: bgModule };
+        activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+        console.log(`Switched background to: ${activeBackground.name}`);
+    }
+
+    // --- Switch Foreground (Text) Effect ---
+    // Use the provided name, or pick a random one
+    const nextFgEffectName = fgName || foregroundEffectNames[Math.floor(Math.random() * foregroundEffectNames.length)];
+    if (activeForeground?.name !== nextFgEffectName) {
+        activeForeground?.module.cleanup();
+        const fgModule = allEffects[nextFgEffectName];
+        activeForeground = { name: nextFgEffectName, module: fgModule };
+        activeForeground.module.setup(foregroundCanvas, currentLyric);
+        console.log(`Switched foreground to: ${activeForeground.name}`);
+    }
+}
+
+function switchPostEffect() {
+    const currentPostEffectName = activePost?.name || '';
+    let nextPostEffectName;
+
+    // Ensure the new effect is different from the current one
     do {
-        nextSceneIndex = Math.floor(Math.random() * effectScenes.length);
-    } while (effectScenes.length > 1 && nextSceneIndex === lastSceneIndex);
-    lastSceneIndex = nextSceneIndex;
-    
-    const scene = effectScenes[nextSceneIndex];
-    const nextBgEffectName = scene.bg;
-    const nextFgEffectName = scene.fg;
-    // --- END IMPROVEMENT ---
-    
-    activeBackground?.module.cleanup();
-    const bgModule = allEffects[nextBgEffectName];
-    activeBackground = { name: nextBgEffectName, module: bgModule };
-    activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
-    console.log(`Switched background to: ${activeBackground.name}`);
-    
-    activeForeground?.module.cleanup();
-    const fgModule = allEffects[nextFgEffectName];
-    activeForeground = { name: nextFgEffectName, module: fgModule };
-    activeForeground.module.setup(foregroundCanvas, currentLyric);
-    console.log(`Switched foreground to: ${activeForeground.name}`);
-    
-    // --- Switch Post-Processing Effect ---
-    const nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
+        nextPostEffectName = postEffectNames[Math.floor(Math.random() * postEffectNames.length)];
+    } while (postEffectNames.length > 1 && nextPostEffectName === currentPostEffectName);
+
+    // Switch to the new effect
     activePost?.module.cleanup();
     const postModule = allEffects[nextPostEffectName];
     activePost = { name: nextPostEffectName, module: postModule };

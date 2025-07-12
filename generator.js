@@ -1,6 +1,6 @@
 // At the top of generator.js
-const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
-// const BASE_URL = 'assets'; 
+// const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
+const BASE_URL = 'assets'; 
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
 
@@ -116,6 +116,7 @@ let audioContext, audioBuffer;
 let currentAudioSource = null; 
 
 let isDragging = false;
+let isPointerActive = false; 
 let touchStartX = 0;
 let touchStartY = 0;
 
@@ -226,28 +227,43 @@ function animate() {
     }
 
     // RENDER PIPELINE
-    // All effects will now automatically use the new smoothed `mouse` values
-    activeBackground?.module.update(mouse, now, onsetPulse);
-    activeForeground?.module.update(mouse, now, currentLyric, onsetPulse);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.0); // Using our capped DPR
     
+    const interactionCoords = {
+        x: mouse.x * dpr,
+        y: mouse.y * dpr,
+        isActive: isPointerActive
+    };
+
+    const bgCtx = backgroundCanvas.getContext('2d');
+    const fgCtx = foregroundCanvas.getContext('2d');
+
+    // Save the state of the background canvas, run the effect, then restore it
+    bgCtx.save();
+    activeBackground?.module.update(interactionCoords, now, onsetPulse);
+    bgCtx.restore();
+
+    // Save the state of the foreground canvas, run the effect, then restore it
+    fgCtx.save();
+    activeForeground?.module.update(interactionCoords, now, currentLyric, onsetPulse);
+    fgCtx.restore();
+    
+    // --- Compositing Logic (remains the same) ---
     compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     
-    // Calculate fade-in opacity
     const timeSinceChange = now - lastLyricChangeTime;
     const fadeInOpacity = Math.min(1.0, timeSinceChange / FADE_IN_DURATION);
 
-    // Apply the fade and draw the foreground
     compositeCtx.globalAlpha = fadeInOpacity;
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
     
-    // Reset alpha before drawing the background
     compositeCtx.globalAlpha = 1.0; 
     
     compositeCtx.globalCompositeOperation = 'screen';
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
     compositeCtx.globalCompositeOperation = 'source-over';
 
-    activePost?.module.update(compositeCanvas, mouse, now, onsetPulse);
+    activePost?.module.update(compositeCanvas, interactionCoords, now, onsetPulse);
     
     requestAnimationFrame(animate);
 } 
@@ -275,6 +291,7 @@ function handlePointerDown(e) {
     
     // Setup for tap vs drag detection
     isDragging = false;
+    isPointerActive = true; 
     touchStartX = pointer.clientX;
     touchStartY = pointer.clientY;
     
@@ -305,7 +322,8 @@ function handlePointerUp(e) {
         // switchEffects();
     }
     
-    isDragging = false; // Reset for the next interaction
+    isPointerActive = false; 
+    isDragging = false; // Reset for the next interaction    
 }
 
 function handlePointerMove(e) {

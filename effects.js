@@ -553,54 +553,93 @@ export const holdStrobeEffect = {
 
 export const cleanTiledText = {
     ctx: null,
-    setup(canvas) { this.ctx = canvas.getContext('2d'); },
-    onLyricChange() {},
-    update(mouse, time, lyric, onsetPulse = 0) {
+    tiles: [],
+    currentLyric: "",
+
+    initializeTiles() {
+        if (!this.ctx) return;
+        this.tiles = [];
+        const canvas = this.ctx.canvas;
+        const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
+        const baseSize = Math.min(canvas.width, canvas.height);
+        const fontSize = baseSize / 12;
+        this.ctx.font = `${fontSize}px 'Blackout'`;
+        const textMetrics = this.ctx.measureText(textToRender);
+        const spacingX = textMetrics.width * 1.5;
+        const spacingY = fontSize * 1.5;
+        if (spacingX === 0) return;
+        for (let y = spacingY / 2; y < canvas.height; y += spacingY) {
+            for (let x = spacingX / 2; x < canvas.width; x += spacingX) {
+                this.tiles.push({
+                    originX: x, originY: y, x: x, y: y, vx: 0, vy: 0,
+                });
+            }
+        }
+    },
+
+    setup(canvas, initialText) { 
+        this.ctx = canvas.getContext('2d'); 
+        this.currentLyric = initialText;
+        this.initializeTiles();
+    },
+
+    onLyricChange(lyric) {
+        if (lyric !== this.currentLyric) {
+            this.currentLyric = lyric;
+            this.initializeTiles();
+        }
+    },
+
+    update(coords, time, lyric, onsetPulse = 0) {
         if (!this.ctx) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
-        const padding = canvas.width * 0.1; // 10% padding
-        
-        // Calculate a responsive base font size
+        const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
         const baseSize = Math.min(canvas.width, canvas.height);
-        let maxFontSize = baseSize / 10;
-        
-        // Use the helper to get a safe font size that prevents cropping
-        const fontSize = getSafeFontSize(ctx, textToRender, maxFontSize, canvas.width - padding) + (onsetPulse * (maxFontSize * 0.4));
+        const fontSize = baseSize / 12 + (onsetPulse * (baseSize * 0.03));
         ctx.font = `${fontSize}px 'Blackout'`;
-        
-        const textMetrics = ctx.measureText(textToRender);
-        const spacingX = textMetrics.width * 1.25;
-        const spacingY = fontSize * 1.5; // Use the final font size for spacing
-        if (spacingX === 0) return;
-
-        ctx.save();
-        const skewX = (mouse.x - canvas.width / 2) * 0.001;
-        const skewY = (mouse.y - canvas.height / 2) * 0.001;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.transform(1, skewY, skewX, 1, 0, 0);
-        ctx.translate(-canvas.width / 2, -canvas.height / 2);
-
         ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        const numRows = Math.ceil(canvas.height / spacingY) + 2;
-        const numCols = Math.ceil(canvas.width / spacingX) + 2;
-        const yOffset = (canvas.height - (numRows - 2) * spacingY) / 2;
-        const xOffset = (canvas.width - (numCols - 2) * spacingX) / 2;
 
-        for (let y = -spacingY; y < canvas.height + spacingY; y += spacingY) {
-            for (let x = -spacingX; x < canvas.width + spacingX; x += spacingX) {
-                ctx.fillText(textToRender, x, y);
+        this.tiles.forEach(p => {
+            // --- MODIFIED: Mouse Repulsion Force ---
+            // Only apply the repulsion force if the user is actively interacting
+            if (coords.isActive) {
+                const dx = p.x - coords.x;
+                const dy = p.y - coords.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const maxDist = 200;
+                
+                if (distance < maxDist) {
+                    const force = (1 - distance / maxDist);
+                    const angle = Math.atan2(dy, dx);
+                    const repelStrength = 3 * force;
+                    p.vx += Math.cos(angle) * repelStrength;
+                    p.vy += Math.sin(angle) * repelStrength;
+                }
             }
-        }
-        ctx.restore();
+
+            // --- Spring and Damping forces (always active) ---
+            const springStrength = 0.05;
+            p.vx += (p.originX - p.x) * springStrength;
+            p.vy += (p.originY - p.y) * springStrength;
+            p.vx *= 0.85;
+            p.vy *= 0.85;
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            
+            ctx.fillText(textToRender, p.x, p.y);
+        });
     },
-    cleanup() { this.ctx = null; }
+    
+    cleanup() { 
+        this.ctx = null; 
+        this.tiles = []; 
+    }
 };
 
 export const spiralVortex = {
@@ -633,7 +672,7 @@ export const spiralVortex = {
 
         const mouseXNorm = (mouse.x - canvas.width/2) / (canvas.width/2);
         const moveSpeed = 0.1 + onsetPulse * 0.005;
-        const rotationSpeed = (mouseXNorm * 0.002);
+        const rotationSpeed = (mouseXNorm * 0.01);
 
         this.rings.forEach(r => {
             const waveOffset = Math.sin(time*0.002 + r.ringIndex*0.5) * 100;
@@ -779,56 +818,71 @@ export const layeredWarpText = {
         this.ctx = canvas.getContext('2d');
     },
     onLyricChange() {},
-    update(mouse, time, lyric, onsetPulse = 0) {
+    update(coords, time, lyric, onsetPulse = 0) {
         if (!this.ctx) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // --- NEW: Add a motion blur trail ---
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // Low alpha creates the trail effect
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
-        
-        // Define a responsive max font size
-        const baseSize = Math.min(canvas.width, canvas.height);
-        let maxFontSize = baseSize / 7;
-        
-        // Use helper to get a safe font size, leaving 5% padding on each side
-        const fontSize = getSafeFontSize(ctx, textToRender, maxFontSize, canvas.width * 0.9);
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
+
+        // --- Font and Style Setup ---
+        // MODIFIED: Increased font size relative to screen width (divided by 7 instead of 10)
+        const initialFontSize = canvas.width / 7 + (onsetPulse * canvas.width * 0.01);
+        const fontSize = getSafeFontSize(ctx, textToRender, initialFontSize, canvas.width * 0.9);
         
         ctx.font = `${fontSize}px 'Blackout'`;
+        ctx.fillStyle = 'black';
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
-        ctx.textAlign = 'left'; 
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        const totalLayers = 40;
-        const visibleLayers = 5 + Math.floor(2 * onsetPulse * (totalLayers - 5));
+        // --- Evasion Logic ---
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
-        const totalTextWidth = ctx.measureText(textToRender).width;
+        
+        const dx = centerX - coords.x;
+        const dy = centerY - coords.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const repelRadius = 300 * dpr;
+        
+        let repelX = 0;
+        let repelY = 0;
 
+        if (distance < repelRadius) {
+            const force = Math.pow(1 - distance / repelRadius, 2);
+            const maxPush = 150 * dpr;
+            const angle = Math.atan2(dy, dx);
+            
+            repelX = Math.cos(angle) * force * maxPush;
+            repelY = Math.sin(angle) * force * maxPush;
+        }
+
+        const totalLayers = 15;
+        const visibleLayers = 5 + Math.floor(2 * onsetPulse * (totalLayers - 5));
+        
+        // --- Render Loops ---
         for (let i = visibleLayers; i >= 0; i--) {
             ctx.save();
             
             const progress = i / totalLayers;
             ctx.globalAlpha = (1 - progress) * 0.75;
 
-            let yOffset = Math.pow(progress, 2) * 300;
-            let xOffset = progress * -80;
-            const mouseWarp = (mouse.x - centerX) * progress * 0.3;
-            xOffset += mouseWarp;
-
-            ctx.translate(centerX + xOffset, centerY + yOffset);
-
-            let currentX = -totalTextWidth / 2;
-            for (let j = 0; j < textToRender.length; j++) {
-                const letter = textToRender[j];
-                const letterWobble = Math.sin(time * 0.003 + j * 0.8) * 10;
-                
-                ctx.fillStyle = 'black';
-                ctx.fillText(letter, currentX, letterWobble);
-                ctx.strokeText(letter, currentX, letterWobble);
-                currentX += ctx.measureText(letter).width;
-            }
+            let yOffset = Math.pow(progress, 2) * 200;
+            let xOffset = progress * -60;
+            
+            const finalX = centerX + xOffset + repelX;
+            const finalY = centerY + yOffset + repelY;
+            
+            ctx.translate(finalX, finalY);
+            
+            ctx.fillText(textToRender, 0, 0);
+            ctx.strokeText(textToRender, 0, 0);
 
             ctx.restore();
         }

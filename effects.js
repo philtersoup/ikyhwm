@@ -187,6 +187,106 @@ export const rgbSplit = {
     `,
 };
 
+export const filmGrain = {
+    ...postEffectPrototype,
+    fragmentShaderSource: `
+        precision mediump float;
+        uniform sampler2D u_texture;
+        uniform vec2 u_resolution;
+        uniform float u_time;
+        uniform float u_onsetPulse;
+
+        // A simple pseudo-random function
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+        }
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+            vec4 texColor = texture2D(u_texture, vec2(uv.x, 1.0 - uv.y));
+            
+            float grainAmount = 0.05 + u_onsetPulse * 0.15;
+            
+            // Generate monochromatic noise and add it to the image color
+            float noise = (random(uv + mod(u_time, 1.0)) - 0.5) * grainAmount;
+            
+            vec4 finalColor = texColor + vec4(noise, noise, noise, 0.0);
+            
+            gl_FragColor = finalColor;
+        }
+    `,
+};
+
+export const scanLines = {
+    ...postEffectPrototype,
+    fragmentShaderSource: `
+        precision mediump float;
+        uniform sampler2D u_texture;
+        uniform vec2 u_resolution;
+        uniform float u_time;
+        uniform float u_onsetPulse;
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+            vec4 texColor = texture2D(u_texture, vec2(uv.x, 1.0 - uv.y));
+            
+            // How many lines and how intense they are
+            float lineFrequency = u_resolution.y * 1.5;
+            float lineIntensity = 0.05 + u_onsetPulse * 0.05;
+            
+            // Create a wave pattern across the screen vertically, scrolling with time
+            float scanLine = sin((uv.y * lineFrequency) - (u_time * 100.0));
+            
+            // Apply the darkening effect
+            vec3 finalColor = texColor.rgb - scanLine * lineIntensity;
+            
+            gl_FragColor = vec4(finalColor, texColor.a);
+        }
+    `,
+};
+
+export const barrelDistortion = {
+    ...postEffectPrototype,
+    fragmentShaderSource: `
+        precision mediump float;
+        uniform sampler2D u_texture;
+        uniform vec2 u_resolution;
+        uniform float u_onsetPulse;
+
+        // Barrel distortion function
+        vec2 distort(vec2 uv, float strength) {
+            vec2 center = vec2(0.5, 0.5);
+            float dist = distance(uv, center);
+            vec2 norm = normalize(uv - center);
+            
+            // The power function creates the curved distortion
+            float new_dist = pow(dist, 1.0 + strength);
+            
+            return center + norm * new_dist;
+        }
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+            
+            // The distortion strength increases with the beat
+            float strength = 0.3 + u_onsetPulse * 0.5;
+            
+            vec2 distorted_uv = distort(uv, strength);
+            
+            vec4 texColor;
+
+            // Only sample the texture if the new coordinates are within the image bounds
+            if (distorted_uv.x > 0.0 && distorted_uv.x < 1.0 && distorted_uv.y > 0.0 && distorted_uv.y < 1.0) {
+                texColor = texture2D(u_texture, vec2(distorted_uv.x, 1.0 - distorted_uv.y));
+            } else {
+                texColor = vec4(0.0, 0.0, 0.0, 1.0); // Render black for pixels outside the bounds
+            }
+
+            gl_FragColor = texColor;
+        }
+    `,
+};
+
 // =================================================================
 // BACKGROUND EFFECT
 // =================================================================
@@ -472,31 +572,35 @@ export const blackBackground = {
 
 export const holdStrobeEffect = {
     ctx: null,
-    mode: 'strobe', // The current visual mode
-    modes: ['strobe', 'wipe', 'ramp'], // Available modes
+    mode: 'strobe',
+    wipeType: 'horizontal',
+    modes: ['strobe', 'wipe', 'ramp'],
+    // --- MODIFIED: Replaced 'rows' with the new 'clock' wipe ---
+    wipeTypes: ['horizontal', 'vertical', 'radial', 'clock'],
 
     setup(canvas) {
         this.ctx = canvas.getContext('2d');
-        // Choose a random mode each time the effect is activated
         this.mode = this.modes[Math.floor(Math.random() * this.modes.length)];
         console.log(`Hold Strobe Mode: ${this.mode}`);
+
+        if (this.mode === 'wipe') {
+            this.wipeType = this.wipeTypes[Math.floor(Math.random() * this.wipeTypes.length)];
+            console.log(`Wipe Type: ${this.wipeType}`);
+        }
     },
 
     onLyricChange() {},
 
-    update(mouse, time, onsetPulse = 0) {
+    update(coords, time, onsetPulse = 0) {
         if (!this.ctx) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
 
-        // The rendering logic is now specific to the mode
         switch (this.mode) {
             case 'strobe':
             case 'ramp':
-                // For modes that use fading trails, draw the transparent background first
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
                 ctx.fillStyle = 'white';
                 if (this.mode === 'strobe' && onsetPulse > 0.5) {
                     ctx.globalAlpha = onsetPulse;
@@ -508,38 +612,55 @@ export const holdStrobeEffect = {
                 break;
             
             case 'wipe':
-                // The duration of one full wipe cycle (white followed by black)
-                const wipeCycleDuration = 215; 
-                const progress = (time % wipeCycleDuration) / wipeCycleDuration; // A value from 0.0 to 1.0
+                const wipeCycleDuration = 800; // Slower cycle for the clock wipe
+                const progress = (time % wipeCycleDuration) / wipeCycleDuration;
+                
+                const isPhase1 = progress < 0.5;
+                const phaseProgress = isPhase1 ? progress * 2 : (progress - 0.5) * 2;
+                
+                ctx.fillStyle = isPhase1 ? 'black' : 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = isPhase1 ? 'white' : 'black';
 
-                // Phase 1: White wipe (from 0% to 50% of the cycle)
-                if (progress < 0.5) {
-                    // Normalize progress for this phase (0.0 to 1.0)
-                    const phaseProgress = progress * 2;
-                    const wipeWidth = canvas.width * phaseProgress;
-                    
-                    // Draw black background and the white wipe on top
-                    ctx.fillStyle = 'black';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, wipeWidth, canvas.height);
-                } 
-                // Phase 2: Black wipe (from 50% to 100% of the cycle)
-                else {
-                    // Normalize progress for this phase (0.0 to 1.0)
-                    const phaseProgress = (progress - 0.5) * 2;
-                    const wipeWidth = canvas.width * phaseProgress;
-                    
-                    // Draw white background and the black wipe on top
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = 'black';
-                    ctx.fillRect(0, 0, wipeWidth, canvas.height);
+                switch (this.wipeType) {
+                    case 'horizontal': {
+                        const wipeWidth = canvas.width * phaseProgress;
+                        ctx.fillRect(0, 0, wipeWidth, canvas.height);
+                        break;
+                    }
+                    case 'vertical': {
+                        const wipeHeight = canvas.height * phaseProgress;
+                        ctx.fillRect(0, 0, canvas.width, wipeHeight);
+                        break;
+                    }
+                    case 'radial': {
+                        const maxRadius = Math.sqrt(Math.pow(canvas.width / 2, 2) + Math.pow(canvas.height / 2, 2));
+                        const wipeRadius = maxRadius * phaseProgress;
+                        ctx.beginPath();
+                        ctx.arc(canvas.width / 2, canvas.height / 2, wipeRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                        break;
+                    }
+                    // --- NEW: Clock wipe logic ---
+                    case 'clock': {
+                        const centerX = canvas.width / 2;
+                        const centerY = canvas.height / 2;
+                        const radius = Math.sqrt(Math.pow(centerX, 2) + Math.pow(centerY, 2));
+                        
+                        // The end angle of the sweep is determined by the progress
+                        const startAngle = -Math.PI / 2; // Start from the top
+                        const endAngle = startAngle + (Math.PI * 2 * phaseProgress);
+
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, centerY); // Start the "pie slice" from the center
+                        ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+                        ctx.closePath(); // Complete the pie slice
+                        ctx.fill();
+                        break;
+                    }
                 }
                 break;
         }
-
-        // Reset global alpha at the end to be safe
         ctx.globalAlpha = 1.0;
     },
     

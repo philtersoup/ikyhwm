@@ -1,8 +1,9 @@
-// At the top of generator.js
 const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
 // const BASE_URL = 'assets'; 
 
-import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, passThrough, postLiquidDisplace, pixelate, rgbSplit } from './effects.js';
+import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, 
+        cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, 
+        passThrough, postLiquidDisplace, pixelate, rgbSplit, } from './effects.js';
 
 const mediaManager = {
     images: [],
@@ -75,6 +76,10 @@ const allEffects = {
     postLiquidDisplace,
     pixelate,
     rgbSplit,
+    // filmGrain, 
+    // scanLines, 
+    // barrelDistortion
+
 };
 
 const effectScenes = [
@@ -93,7 +98,7 @@ const effectScenes = [
 
 let lastSceneIndex = -1;
 
-// --- RANDOMIZER SETUP ---
+// --- EFFECT SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
 const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage', 'blackBackground', 'holdStrobeEffect'];
 const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
@@ -123,7 +128,7 @@ let touchStartY = 0;
 // --- Hold Gesture Variables ---
 let holdTimer = null;
 let isHolding = false;
-const HOLD_DURATION = 500; // ms
+const HOLD_DURATION = 350; // ms
 
 // --- Lyric fade-in variables ---
 const FADE_IN_DURATION = 5; // ms
@@ -176,7 +181,7 @@ function animate() {
     // --- NEW: Loop Detection and Reset Logic ---
     // Check if the audio buffer exists and if the song has completed a loop
     // audioBuffer.duration
-    if (audioBuffer && elapsedSeconds >= audioBuffer.duration) {
+    if (audioBuffer && elapsedSeconds >= audioBuffer.duration + 5) {
         startTime = now;      // Reset the main timer to the current moment
         elapsedSeconds = 0;   // Reset elapsed time for the current frame
         nextOnsetIndex = 0;   // Reset the beat tracker
@@ -287,20 +292,18 @@ function playAudio() {
 
 function handlePointerDown(e) {
     e.preventDefault();
-    const pointer = e.touches ? e.touches[0] : e;
-    
-    // Setup for tap vs drag detection
-    isDragging = false;
     isPointerActive = true; 
+    const pointer = e.touches ? e.touches[0] : e;
+
+    isDragging = false;
     touchStartX = pointer.clientX;
     touchStartY = pointer.clientY;
-    
-    // Start timer for the hold gesture
+
     holdTimer = setTimeout(() => {
         isHolding = true;
         console.log("--- Hold Activated: Strobe Effect ---");
-        
-        // Override the current background with the hold effect
+
+        // We no longer need to save the last effect, just switch to the new one.
         activeBackground?.module.cleanup();
         const bgModule = allEffects['holdStrobeEffect'];
         activeBackground = { name: 'holdStrobeEffect', module: bgModule };
@@ -310,20 +313,25 @@ function handlePointerDown(e) {
 }
 
 function handlePointerUp(e) {
-    clearTimeout(holdTimer); // Always clear the timer on release
+    clearTimeout(holdTimer); 
+    isPointerActive = false;
 
     if (isHolding) {
-        // If the hold was active, release it and switch to a new random effect
         isHolding = false;
-        console.log("--- Hold Released ---");
-        // switchEffects();
-    } else if (!isDragging) {
-        // If it wasn't a hold and wasn't a drag, it was a tap/click
-        // switchEffects();
+        console.log("--- Hold Released, reverting to timeline effect ---");
+
+        // If there's an active cue on the timeline, switch back to its background effect.
+        if (currentEffectCue) {
+            const effectNames = currentEffectCue.text.split(',').map(name => name.trim());
+            const backgroundEffectName = effectNames[1];
+            const foregroundEffectName = effectNames[0];
+            // const foregroundEffectName = effectNames[0];
+            // Call switchEffects to handle the transition back cleanly.
+            switchEffects(backgroundEffectName, foregroundEffectName);
+        }
     }
-    
-    isPointerActive = false; 
-    isDragging = false; // Reset for the next interaction    
+
+    isDragging = false;
 }
 
 function handlePointerMove(e) {
@@ -338,7 +346,7 @@ function handlePointerMove(e) {
     if (e.touches) {
         const dx = pointer.clientX - touchStartX;
         const dy = pointer.clientY - touchStartY;
-        if (Math.sqrt(dx * dx + dy * dy) > 10) { 
+        if (Math.sqrt(dx * dx + dy * dy) > 20) { 
             isDragging = true;
             clearTimeout(holdTimer);
         }

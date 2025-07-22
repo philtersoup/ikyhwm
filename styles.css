@@ -37,7 +37,7 @@ canvas {
 
     /* --- NEW BACKGROUND IMAGE STYLES --- */
     /* This layers a semi-transparent black color over your image */
-    background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('assets/images/IKYHWM_FINAL.png');
+    background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev/images/IKYHWM_FINAL.webp');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;

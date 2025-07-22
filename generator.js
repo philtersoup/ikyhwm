@@ -1,5 +1,5 @@
-const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
-// const BASE_URL = 'assets'; 
+// const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
+const BASE_URL = 'assets'; 
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, 
         cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, 
@@ -382,6 +382,7 @@ async function init() {
 
     // --- Setup all loading promises ---
     const fontPromise = new FontFace('Blackout', `url("${BASE_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
+    // const fontPromise = new FontFace('Brush', `url("${BASE_URL}/Higher%20Jump.ttf")`).load().then(font => {
         document.fonts.add(font);
         updateProgress();
     });

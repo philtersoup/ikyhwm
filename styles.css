@@ -28,14 +28,19 @@ canvas {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.95);
     display: flex;
     justify-content: center;
     align-items: center;
-    /* --- FIX #1: Ensure overlays are on top of canvas --- */
     z-index: 1000; 
     flex-direction: column;
     transition: opacity 0.5s ease-out;
+
+    /* --- NEW BACKGROUND IMAGE STYLES --- */
+    /* This layers a semi-transparent black color over your image */
+    background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('assets/images/IKYHWM_FINAL.png');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
 }
 
 .hidden {

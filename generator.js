@@ -9,11 +9,11 @@ const mediaManager = {
     images: [],
     imageUrls: [
         'DSCF4317.jpg', 'DSCF4379.jpg', 'DSCF7135.jpg', 
-        'DSCF8082.jpg', 'DSCF8191.jpg', 'DSCF4325.jpg', 
-        'DSCF6856.jpg', 'DSCF7136.jpg', 'DSCF8084.jpg', 
+        'DSCF8082.png', 'DSCF8191.jpg', 'DSCF4325.jpg', 
+        'DSCF7136.jpg', 'DSCF8084.jpg', 
         'DSCF8196.jpg', 'DSCF4327.jpg', 'DSCF6873.jpg', 
         'DSCF7137.jpg', 'DSCF8123.jpg', 'DSCF8206.jpg', 
-        'DSCF4342.jpg', 'DSCF6875.jpg', 'DSCF7138.jpg', 
+        'DSCF6875.jpg', 'DSCF7138.jpg', 
         'DSCF8138.jpg', 'DSCF8209.jpg', 'DSCF4355.jpg', 
         'DSCF7100.jpg', 'DSCF7142.jpg', 'DSCF8153.jpg', 
         'DSCF8211.jpg', 'DSCF4366.jpg', 'DSCF7112.jpg', 
@@ -22,7 +22,9 @@ const mediaManager = {
         'DSCF8176.jpg', 'DSCF8278.jpg', 'DSCF4374.jpg', 
         'DSCF7132.jpg', 'DSCF7151.jpg', 'DSCF8179.jpg', 
         'DSCF4375.jpg', 'DSCF7133.jpg', 'DSCF7154.jpg', 
-        'DSCF8181.jpg'
+        '1.png', '2.png', '3.png', '4.png', 
+        '5.png','6.png', '7.png', '8.png', '9.png', '10.png', 
+        '11.png', '12.png', '13.png'
     ].map(filename => `${BASE_URL}/images/${filename}`),
     async load(updateProgress) {
         const imagePromises = this.imageUrls.map(url => 
@@ -55,6 +57,12 @@ const mediaManager = {
         console.log('Shared media assets loaded and resized once!');
     }
 };
+
+const fontOptions = [
+    { name: 'Blackout2am',   url: `url("${BASE_URL}/Blackout%202%20AM.ttf")` },
+    { name: 'Blackout',    url: `url("${BASE_URL}/Blackout%20Midnight.ttf")` },
+    { name: 'BlackoutSun',  url: `url("${BASE_URL}/Blackout%20Sunrise.ttf")` }
+];
 
 const allEffects = {
     // Background Effects
@@ -96,6 +104,15 @@ const effectScenes = [
     // Add more compatible pairs
 ];
 
+const globalSettings = {
+    backgroundColor: '#000000ff', // Default to black
+    // backgroundColor: '#000000ff', // Default to black
+    textColor: '#f4f4f4ff',       // Default to white
+    fontFamily: 'Blackout',     // Default font
+    strokeColor: '#000000ff',     // Default stroke color
+    fontFamily: 'Blackout'
+};
+
 let lastSceneIndex = -1;
 
 // --- EFFECT SETUP ---
@@ -133,7 +150,6 @@ const HOLD_DURATION = 350; // ms
 // --- Lyric fade-in variables ---
 const FADE_IN_DURATION = 5; // ms
 let lastLyricChangeTime = -Infinity;
-
 
 // --- Beat tracking variables ---
 let onsetData = { onsets: [] };
@@ -181,7 +197,7 @@ function animate() {
     // --- NEW: Loop Detection and Reset Logic ---
     // Check if the audio buffer exists and if the song has completed a loop
     // audioBuffer.duration
-    if (audioBuffer && elapsedSeconds >= audioBuffer.duration + 5) {
+    if (audioBuffer && elapsedSeconds >= audioBuffer.duration + 10) {
         startTime = now;      // Reset the main timer to the current moment
         elapsedSeconds = 0;   // Reset elapsed time for the current frame
         nextOnsetIndex = 0;   // Reset the beat tracker
@@ -222,12 +238,28 @@ function animate() {
         lastLyricChangeTime = now;
     }
 
+    // Replace with this updated block
     const activeCue = effectSequence.find(cue => elapsedSeconds >= (cue.startTime / 1000) && elapsedSeconds <= (cue.endTime / 1000));
     if (activeCue && activeCue !== currentEffectCue) {
         currentEffectCue = activeCue;
-        const effectNames = activeCue.text.split(',').map(name => name.trim());
-        const bgName = effectNames[1];
-        const fgName = effectNames[0]; // This can be undefined if you only specify one
+        const parts = activeCue.text.split(',').map(name => name.trim());
+        
+        // --- NEW: Font handling from SRT ---
+        const fontName = parts[2]; // The font name is the third argument
+        
+        // Only change the font if a third argument exists and is a valid, loaded font
+        if (fontName && fontOptions.some(font => font.name === fontName)) {
+            if (fontName !== globalSettings.fontFamily) {
+                console.log(`Setting font from SRT: ${fontName}`);
+                globalSettings.fontFamily = fontName;
+                // Force the foreground effect to re-initialize with the new font metrics
+                activeForeground?.module.onLyricChange?.(currentLyric);
+            }
+        }
+
+        // --- Effect switching logic (unchanged) ---
+        const fgName = parts[0];
+        const bgName = parts[1];
         switchEffects(bgName, fgName);
     }
 
@@ -262,11 +294,18 @@ function animate() {
     compositeCtx.globalAlpha = fadeInOpacity;
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
     
-    compositeCtx.globalAlpha = 1.0; 
+    // compositeCtx.globalAlpha = 1.0; 
     
-    compositeCtx.globalCompositeOperation = 'screen';
+    // compositeCtx.globalCompositeOperation = 'screen';
+    // compositeCtx.drawImage(backgroundCanvas, 0, 0);
+    // compositeCtx.globalCompositeOperation = 'source-over';
+
+    compositeCtx.globalAlpha = 1.0; // Ensure full opacity
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
-    compositeCtx.globalCompositeOperation = 'source-over';
+
+    compositeCtx.globalAlpha = fadeInOpacity; // Apply fade for lyrics
+    compositeCtx.drawImage(foregroundCanvas, 0, 0); 
+    compositeCtx.globalAlpha = 1.0; // Reset alpha
 
     activePost?.module.update(compositeCanvas, interactionCoords, now, onsetPulse);
     
@@ -381,14 +420,22 @@ async function init() {
     };
 
     // --- Setup all loading promises ---
-    const fontPromise = new FontFace('Blackout', `url("${BASE_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
-    // const fontPromise = new FontFace('Brush', `url("${BASE_URL}/Higher%20Jump.ttf")`).load().then(font => {
-        document.fonts.add(font);
-        updateProgress();
+    // const fontPromise = new FontFace('Blackout', `url("${BASE_URL}/Blackout%20Sunrise.ttf")`).load().then(font => {
+    // const fontPromise = new FontFace('Blackout', `url("${BASE_URL}/Blackout%20Midnight.ttf")`).load().then(font => {
+    const fontPromises = fontOptions.map(fontInfo => {
+        // Create a new FontFace for each font in the array
+        const font = new FontFace(fontInfo.name, fontInfo.url);
+        
+        // Load it and, once loaded, add it to the document
+        return font.load().then(loadedFont => {
+            document.fonts.add(loadedFont);
+            updateProgress(); // Update your loading progress for each font
+        });
     });
-    promisesToLoad.push(fontPromise);
+    
+    promisesToLoad.push(fontPromises);
 
-    const lyricsPromise = fetch(`${BASE_URL}/TEST.srt`).then(res => res.text()).then(text => {
+    const lyricsPromise = fetch(`${BASE_URL}/LYRICS.srt`).then(res => res.text()).then(text => {
         lyrics = parseSRT(text);
         updateProgress();
     });
@@ -430,12 +477,12 @@ async function init() {
     const initialBgEffectName = backgroundEffectNames[3];
     const bgModule = allEffects[initialBgEffectName];
     activeBackground = { name: initialBgEffectName, module: bgModule };
-    activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+    activeBackground.module.setup(backgroundCanvas, null, mediaManager.images, globalSettings);
     
     const initialFgEffectName = foregroundEffectNames[2];
     const fgModule = allEffects[initialFgEffectName];
     activeForeground = { name: initialFgEffectName, module: fgModule };
-    activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ");
+    activeForeground.module.setup(foregroundCanvas, lyrics.length > 0 ? lyrics[0].text : " ", globalSettings);
 
     const initialPostEffectName = postEffectNames[0];
     const postModule = allEffects[initialPostEffectName];
@@ -487,7 +534,7 @@ function switchEffects(bgName, fgName) {
         activeBackground?.module.cleanup();
         const bgModule = allEffects[nextBgEffectName];
         activeBackground = { name: nextBgEffectName, module: bgModule };
-        activeBackground.module.setup(backgroundCanvas, null, mediaManager.images);
+        activeBackground.module.setup(backgroundCanvas, null, mediaManager.images, globalSettings);
         console.log(`Switched background to: ${activeBackground.name}`);
     }
 
@@ -498,7 +545,7 @@ function switchEffects(bgName, fgName) {
         activeForeground?.module.cleanup();
         const fgModule = allEffects[nextFgEffectName];
         activeForeground = { name: nextFgEffectName, module: fgModule };
-        activeForeground.module.setup(foregroundCanvas, currentLyric);
+        activeForeground.module.setup(foregroundCanvas, currentLyric, globalSettings);
         console.log(`Switched foreground to: ${activeForeground.name}`);
     }
 }

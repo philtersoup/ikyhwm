@@ -1,6 +1,17 @@
+function hexToRgba(hex, alpha) {
+    // Remove the hash at the start if it's there
+    hex = hex.replace('#', '');
+
+    // Parse r, g, b values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 // --- Font Size Helper ---
-function getSafeFontSize(ctx, text, maxFontSize, maxWidth) {
-    ctx.font = `${maxFontSize}px 'Blackout'`;
+function getSafeFontSize(ctx, text, maxFontSize, maxWidth, fontFamily) {
+    ctx.font = `${maxFontSize}px '${fontFamily}'`; // Use the new fontFamily argument
     const textWidth = ctx.measureText(text).width;
 
     // If text is wider than the allowed space, scale the font size down
@@ -297,17 +308,18 @@ export const imageCollage = {
     cacheSize: 25,
     lastDrawTime: 0,
 
-    setup(canvas, initialText, sharedImages) {
+    setup(canvas, initialText, sharedImages, settings) {
         this.ctx = canvas.getContext('2d');
         this.sliceCache = [];
         this.images = sharedImages; // Receives pre-loaded images
+        this.settings = settings
     },
     onLyricChange() {},
     update(mouse, time, onsetPulse = 0) {
         if (!this.ctx || this.images.length === 0) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillStyle = hexToRgba(this.settings.backgroundColor, 0.01);
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         const drawInterval = (1 - onsetPulse) * 300;
         if (time - this.lastDrawTime < drawInterval) {
@@ -339,25 +351,25 @@ export const imageCollage = {
         ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sliceWidth, slice.sliceHeight, dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
         ctx.strokeStyle = '#888';
         ctx.lineWidth = 2;
-        ctx.strokeRect(dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
-        ctx.globalAlpha = 1.0;
+        // ctx.strokeRect(dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
+        ctx.globalAlpha = 0.0;
     },
     cleanup() { this.ctx = null; this.images = []; this.sliceCache = []; }
 };
 
-
 export const perspectiveTunnelCollage = {
     ctx: null,
+    settings: null,
     images: [],
     slices: [],
     numSlices: 200, // The number of images in the tunnel
     maxDepth: 1000, // How deep the tunnel is
 
-    setup(canvas, initialText, sharedImages) {
+    setup(canvas, initialText, sharedImages, settings) {
         this.ctx = canvas.getContext('2d');
         this.images = sharedImages;
         this.slices = [];
-        
+        this.settings = settings;
         // Pre-populate the tunnel with slice objects
         for (let i = 0; i < this.numSlices; i++) {
             const img = this.images[Math.floor(Math.random() * this.images.length)];
@@ -387,7 +399,7 @@ export const perspectiveTunnelCollage = {
 
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-        ctx.fillStyle = 'black';
+        ctx.fillStyle = this.settings.backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         this.slices.sort((a, b) => b.z - a.z);
@@ -439,12 +451,14 @@ export const perspectiveTunnelCollage = {
 
 export const fallingPolaroidsCollage = {
     ctx: null,
+    settings: null,
     images: [],
     polaroids: [],
-    setup(canvas, initialText, sharedImages) {
+    setup(canvas, initialText, sharedImages, settings) {
         this.ctx = canvas.getContext('2d');
         this.polaroids = [];
         this.images = sharedImages;
+        this.settings = settings
         this.loaded = true;
     },
     onLyricChange() {},
@@ -453,7 +467,7 @@ export const fallingPolaroidsCollage = {
 
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-        ctx.fillStyle = 'black';
+        ctx.fillStyle = this.settings.backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // On a strong beat, spawn a "bunch" of new polaroids
@@ -553,8 +567,11 @@ export const fallingPolaroidsCollage = {
 
 export const blackBackground = {
     ctx: null,
-    setup(canvas) {
+    settings: null,
+    setup(canvas, initialText, sharedImages, settings) {
         this.ctx = canvas.getContext('2d');
+        // Now 'settings' will be the correct object
+        this.settings = settings; 
     },
     onLyricChange() {},
     update() {
@@ -562,7 +579,7 @@ export const blackBackground = {
         const ctx = this.ctx;
         const canvas = ctx.canvas;
         // The only job of this effect is to clear the screen with black.
-        ctx.fillStyle = 'black';
+        ctx.fillStyle = this.settings.backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     },
     cleanup() {
@@ -572,6 +589,7 @@ export const blackBackground = {
 
 export const holdStrobeEffect = {
     ctx: null,
+    settings: null,
     mode: 'strobe',
     wipeType: 'horizontal',
     modes: ['strobe', 'wipe', 'ramp'],
@@ -668,12 +686,14 @@ export const holdStrobeEffect = {
         this.ctx = null;
     }
 };
+
 // =================================================================
 // FOREGROUND (TEXT) EFFECTS
 // =================================================================
 
 export const cleanTiledText = {
     ctx: null,
+    settings: null,
     tiles: [],
     currentLyric: "",
 
@@ -684,7 +704,7 @@ export const cleanTiledText = {
         const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
         const baseSize = Math.min(canvas.width, canvas.height);
         const fontSize = baseSize / 12;
-        this.ctx.font = `${fontSize}px 'Blackout'`;
+        this.ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
         const textMetrics = this.ctx.measureText(textToRender);
         const spacingX = textMetrics.width * 1.5;
         const spacingY = fontSize * 1.5;
@@ -698,9 +718,10 @@ export const cleanTiledText = {
         }
     },
 
-    setup(canvas, initialText) { 
+    setup(canvas, initialText, settings) { 
         this.ctx = canvas.getContext('2d'); 
         this.currentLyric = initialText;
+        this.settings = settings;
         this.initializeTiles();
     },
 
@@ -720,8 +741,8 @@ export const cleanTiledText = {
         const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
         const baseSize = Math.min(canvas.width, canvas.height);
         const fontSize = baseSize / 12 + (onsetPulse * (baseSize * 0.03));
-        ctx.font = `${fontSize}px 'Blackout'`;
-        ctx.fillStyle = 'white';
+        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        ctx.fillStyle = this.settings.textColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -764,9 +785,10 @@ export const cleanTiledText = {
 };
 
 export const spiralVortex = {
-    ctx: null, rings: [], fov: 400, currentLyric: "",
-    setup(canvas, text) { 
-        this.ctx = canvas.getContext('2d'); 
+    ctx: null, settings: null, rings: [], fov: 400, currentLyric: "",
+    setup(canvas, text, settings) { 
+        this.ctx = canvas.getContext('2d');
+        this.settings = settings; 
         // Make radius responsive
         this.ringRadius = Math.min(canvas.width, canvas.height) * 0.8;
         this.onLyricChange(text); 
@@ -822,8 +844,8 @@ export const spiralVortex = {
         const baseSize = Math.min(this.ctx.canvas.width, this.ctx.canvas.height);
         const fontSize = (baseSize / 20) + (ringIndex * 4);
         
-        ctx.font = `${fontSize}px 'Blackout'`;
-        Object.assign(ctx, {fillStyle:'white',textAlign:'center',textBaseline:'middle',shadowBlur:3,shadowColor:'rgba(0,0,0,0.5)'});
+        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        Object.assign(ctx, {fillStyle: this.settings.textColor, textAlign:'center',textBaseline:'middle',shadowBlur:3,shadowColor:'rgba(0,0,0,0.5)'});
         ctx.translate(this.ringRadius, this.ringRadius); ctx.rotate(ringIndex * 0.1);
         const words = (text || "SPIRAL").toUpperCase().split(' ').filter(Boolean);
         if(!words.length) return canvas;
@@ -849,8 +871,8 @@ export const spiralVortex = {
 };
 
 export const simpleTunnel = {
-    ctx: null, rows: [], currentLyric: "",
-    setup(canvas, text) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); },
+    ctx: null, settings: null, rows: [], currentLyric: "",
+    setup(canvas, text, settings) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); this.settings = settings; },
     onLyricChange(lyric) {
         this.rows = [];
         this.currentLyric = lyric;
@@ -880,12 +902,16 @@ export const simpleTunnel = {
             const projScale = Math.min(1, Math.abs(distY) / (canvas.height/2));
             const fontSize = Math.max(baseFontSize * 0.05, baseFontSize * projScale) + (onsetPulse * 30 * projScale);
             if (fontSize < 1) return;
-            Object.assign(ctx, {font:`${fontSize}px 'Blackout'`,fillStyle:'white',textAlign:'center',globalAlpha:projScale});
+            Object.assign(ctx, {font:`${fontSize}px '${this.settings.fontFamily}'`,fillStyle:this.settings.textColor,textAlign:'center',globalAlpha:projScale});
             const warp = (mouse.x - canvas.width / 2) * (1 - projScale);
             const scroll = (timeOffset * row.direction) % 200;
             const finalX = canvas.width / 2 + scroll + warp;
             const finalY = mouse.y + distY * (projScale + 0.4);
             ctx.fillText(row.text, finalX, finalY);
+
+            ctx.strokeStyle = this.settings.strokeColor;
+            ctx.lineWidth = 0.5; // You can adjust this value
+            ctx.strokeText(row.text, finalX, finalY);
         });
         ctx.globalAlpha = 1.0;
     },
@@ -893,8 +919,8 @@ export const simpleTunnel = {
 };
 
 export const hourglassTiling = {
-    ctx: null,
-    setup(canvas) { this.ctx = canvas.getContext('2d'); },
+    ctx: null, settings: null,
+    setup(canvas, initialText, settings){ this.ctx = canvas.getContext('2d'); this.settings = settings; },
     onLyricChange() {},
     update(mouse, time, lyric, onsetPulse = 0) {
         if (!this.ctx) return;
@@ -908,8 +934,8 @@ export const hourglassTiling = {
         const baseSize = Math.min(canvas.width, canvas.height);
         const fontSize = baseSize / 15; // Adjusted for this effect
         const rowHeight = fontSize * 1.2;
-        ctx.font = `${fontSize}px 'Blackout'`;
-        ctx.fillStyle = 'white';
+        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        ctx.fillStyle = this.settings.textColor;
         ctx.textAlign = 'left';
 
         const textMetrics = ctx.measureText(textToRender + " ");
@@ -934,9 +960,10 @@ export const hourglassTiling = {
 };
 
 export const layeredWarpText = {
-    ctx: null,
-    setup(canvas) {
+    ctx: null, settings: null,
+    setup(canvas, initialText, settings)  {
         this.ctx = canvas.getContext('2d');
+        this.settings = settings;
     },
     onLyricChange() {},
     update(coords, time, lyric, onsetPulse = 0) {
@@ -945,8 +972,7 @@ export const layeredWarpText = {
         const canvas = ctx.canvas;
 
         // --- NEW: Add a motion blur trail ---
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // Low alpha creates the trail effect
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
         const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
@@ -954,12 +980,12 @@ export const layeredWarpText = {
         // --- Font and Style Setup ---
         // MODIFIED: Increased font size relative to screen width (divided by 7 instead of 10)
         const initialFontSize = canvas.width / 7 + (onsetPulse * canvas.width * 0.01);
-        const fontSize = getSafeFontSize(ctx, textToRender, initialFontSize, canvas.width * 0.9);
+        const fontSize = getSafeFontSize(ctx, textToRender, initialFontSize, canvas.width * 0.9, this.settings.fontFamily);
         
-        ctx.font = `${fontSize}px 'Blackout'`;
-        ctx.fillStyle = 'black';
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
+        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        ctx.fillStyle = this.settings.textColor;
+        ctx.strokeStyle = this.settings.strokeColor;
+        ctx.lineWidth = 0.5;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 

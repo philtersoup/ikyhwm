@@ -1,5 +1,6 @@
 const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
 // const BASE_URL = 'assets'; 
+let maxDPR = 1.0;
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, 
         cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, 
@@ -110,7 +111,8 @@ const globalSettings = {
     textColor: '#f4f4f4ff',       // Default to white
     fontFamily: 'Blackout',     // Default font
     strokeColor: '#000000ff',     // Default stroke color
-    fontFamily: 'Blackout'
+    fontFamily: 'Blackout',
+    maxDPR: maxDPR
 };
 
 let lastSceneIndex = -1;
@@ -168,8 +170,10 @@ const startButton = document.getElementById('start-button');
 
 // --- 
 function resizeCanvases() {
-    // Get the device's pixel ratio
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
+    const isIPhone = /iPhone/.test(navigator.userAgent);
+    maxDPR = isIPhone ? 1.5 : 1.0; 
+    const dpr = Math.min(window.devicePixelRatio || 1, maxDPR);
+    // const dpr = window.devicePixelRatio || 1;
 
     // Get the logical viewport size
     const logicalWidth = window.innerWidth;
@@ -264,7 +268,8 @@ function animate() {
     }
 
     // RENDER PIPELINE
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.0); // Using our capped DPR
+    const dpr = Math.min(window.devicePixelRatio || 1, maxDPR); // Using our capped DPR
+    // const dpr = window.devicePixelRatio || 1;
     
     const interactionCoords = {
         x: mouse.x * dpr,
@@ -414,7 +419,7 @@ async function init() {
     // Use a single, reliable progress updater
     const updateProgress = () => {
         loadedAssets++;
-        const percent = Math.floor((loadedAssets / totalAssets) * 100);
+        const percent = Math.min(100, Math.floor((loadedAssets / totalAssets) * 100));
         progressBar.style.width = `${percent}%`;
         progressPercent.innerText = `${percent}%`;
     };

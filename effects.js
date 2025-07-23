@@ -56,7 +56,7 @@ const defaultVertexShader = `
 
 const postEffectPrototype = {
     setup(canvas) {
-        this.gl = canvas.getContext('webgl', { preserveDrawingBuffer: true });
+        this.gl = canvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: true });
         const gl = this.gl;
         const vertexShader = createShader(gl, gl.VERTEX_SHADER, defaultVertexShader);
         const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, this.fragmentShaderSource);
@@ -149,7 +149,7 @@ export const postLiquidDisplace = {
 
             float distortionAmount = 0.025 + u_onsetPulse * 0.05;
             float noiseScale = 4.0;
-            float time = u_time * 0.1;
+            float time = u_time * 0.5;
             
             vec3 noisePos = vec3(scaled_uv * noiseScale, time);
             float offsetX = snoise(noisePos);
@@ -303,6 +303,7 @@ export const barrelDistortion = {
 // =================================================================
 export const imageCollage = {
     ctx: null,
+    settings: null,
     images: [],
     sliceCache: [],
     cacheSize: 25,
@@ -311,7 +312,7 @@ export const imageCollage = {
     setup(canvas, initialText, sharedImages, settings) {
         this.ctx = canvas.getContext('2d');
         this.sliceCache = [];
-        this.images = sharedImages; // Receives pre-loaded images
+        this.images = sharedImages;
         this.settings = settings
     },
     onLyricChange() {},
@@ -319,7 +320,7 @@ export const imageCollage = {
         if (!this.ctx || this.images.length === 0) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
-        ctx.fillStyle = hexToRgba(this.settings.backgroundColor, 0.01);
+        ctx.fillStyle = hexToRgba(this.settings.backgroundColor, 0.03);
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         const drawInterval = (1 - onsetPulse) * 300;
         if (time - this.lastDrawTime < drawInterval) {
@@ -327,13 +328,21 @@ export const imageCollage = {
         }
         this.lastDrawTime = time;
         let slice;
-        const shouldRepeat = this.sliceCache.length > 0 && Math.random() < 0.2;
+        const shouldRepeat = this.sliceCache.length > 0 && Math.random() < 0.1;
         if (shouldRepeat) {
             slice = this.sliceCache[Math.floor(Math.random() * this.sliceCache.length)];
         } else {
             const img = this.images[Math.floor(Math.random() * this.images.length)];
-            const sliceWidth = img.width * (Math.random() * 0.6 + 0.1);
-            const sliceHeight = img.height * (Math.random() * 0.6 + 0.1);
+            
+            // --- MODIFIED: Preserve Aspect Ratio ---
+            // 1. Pick a single random scale for the slice size.
+            const sliceScale = Math.random() * 0.6 + 0.1; // Slice will be 10% to 70% of original size.
+            
+            // 2. Apply the same scale to both width and height.
+            const sliceWidth = img.width * sliceScale;
+            const sliceHeight = img.height * sliceScale;
+            // --- END MODIFICATION ---
+
             const sx = Math.random() * (img.width - sliceWidth);
             const sy = Math.random() * (img.height - sliceHeight);
             slice = { img, sx, sy, sliceWidth, sliceHeight };
@@ -344,10 +353,10 @@ export const imageCollage = {
         }
         const dx = Math.random() * canvas.width;
         const dy = Math.random() * canvas.height;
-        const zoomLevel = Math.random() * 2 + 0.5;
+        const zoomLevel = Math.random() * 0.5 + 0.7; 
         const dWidth = slice.sliceWidth * (zoomLevel + onsetPulse * 1.5);
         const dHeight = slice.sliceHeight * (zoomLevel + onsetPulse * 1.5);
-        ctx.globalAlpha = Math.random() * 0.4 + 0.3;
+        ctx.globalAlpha = Math.random() * 0.2 + 0.8; 
         ctx.drawImage(slice.img, slice.sx, slice.sy, slice.sliceWidth, slice.sliceHeight, dx - dWidth / 2, dy - dHeight / 2, dWidth, dHeight);
         ctx.strokeStyle = '#888';
         ctx.lineWidth = 2;
@@ -911,7 +920,7 @@ export const simpleTunnel = {
 
             ctx.strokeStyle = this.settings.strokeColor;
             ctx.lineWidth = 0.5; // You can adjust this value
-            ctx.strokeText(row.text, finalX, finalY);
+            // ctx.strokeText(row.text, finalX, finalY);
         });
         ctx.globalAlpha = 1.0;
     },
@@ -971,11 +980,11 @@ export const layeredWarpText = {
         const ctx = this.ctx;
         const canvas = ctx.canvas;
 
-        // --- NEW: Add a motion blur trail ---
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
+        const dpr = Math.min(window.devicePixelRatio || 1, this.settings.maxDPR); // Ensure DPR does not exceed a maximum value
+        // const dpr = window.devicePixelRatio || 1;
 
         // --- Font and Style Setup ---
         // MODIFIED: Increased font size relative to screen width (divided by 7 instead of 10)
@@ -983,9 +992,9 @@ export const layeredWarpText = {
         const fontSize = getSafeFontSize(ctx, textToRender, initialFontSize, canvas.width * 0.9, this.settings.fontFamily);
         
         ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
-        ctx.fillStyle = this.settings.textColor;
-        ctx.strokeStyle = this.settings.strokeColor;
-        ctx.lineWidth = 0.5;
+        ctx.fillStyle = this.settings.backgroundColor;
+        ctx.strokeStyle = this.settings.textColor;
+        ctx.lineWidth = 2.0;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -1010,11 +1019,11 @@ export const layeredWarpText = {
             repelY = Math.sin(angle) * force * maxPush;
         }
 
-        const totalLayers = 15;
-        const visibleLayers = 5 + Math.floor(2 * onsetPulse * (totalLayers - 5));
+        const totalLayers = 1;
+        // const visibleLayers = 5 + Math.floor(2 * onsetPulse * (totalLayers - 5));
         
         // --- Render Loops ---
-        for (let i = visibleLayers; i >= 0; i--) {
+        for (let i = totalLayers; i >= 0; i--) {
             ctx.save();
             
             const progress = i / totalLayers;

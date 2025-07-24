@@ -4,7 +4,7 @@ let maxDPR = 1.0;
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, 
         cleanTiledText, spiralVortex, simpleTunnel, hourglassTiling, layeredWarpText, 
-        passThrough, postLiquidDisplace, pixelate, rgbSplit, } from './effects.js';
+        passThrough, postLiquidDisplace, pixelate, rgbSplit, filmGrain, scanLines, barrelDistortion } from './effects.js';
 
 const mediaManager = {
     images: [],
@@ -85,25 +85,11 @@ const allEffects = {
     postLiquidDisplace,
     pixelate,
     rgbSplit,
-    // filmGrain, 
-    // scanLines, 
-    // barrelDistortion
+    filmGrain, 
+    scanLines, 
+    barrelDistortion
 
 };
-
-const effectScenes = [
-    { bg: 'blackBackground',         fg: 'hourglassTiling' },
-    { bg: 'blackBackground',        fg: 'spiralVortex' },
-    { bg: 'perspectiveTunnelCollage', fg: 'layeredWarpText' },
-    { bg: 'blackBackground',        fg: 'layeredWarpText' },
-    { bg: 'perspectiveTunnelCollage', fg: 'simpleTunnel' },
-    { bg: 'fallingPolaroidsCollage', fg: 'cleanTiledText' },
-    { bg: 'fallingPolaroidsCollage', fg: 'layeredWarpText' },
-    { bg: 'imageCollage',         fg: 'hourglassTiling' },
-    { bg: 'imageCollage',            fg: 'simpleTunnel' },
-
-    // Add more compatible pairs
-];
 
 const globalSettings = {
     backgroundColor: '#000000ff', // Default to black
@@ -111,7 +97,6 @@ const globalSettings = {
     textColor: '#f4f4f4ff',       // Default to white
     fontFamily: 'Blackout',     // Default font
     strokeColor: '#000000ff',     // Default stroke color
-    fontFamily: 'Blackout',
     maxDPR: maxDPR
 };
 
@@ -120,7 +105,7 @@ let lastSceneIndex = -1;
 // --- EFFECT SETUP ---
 const foregroundEffectNames = ['cleanTiledText', 'spiralVortex', 'simpleTunnel', 'hourglassTiling', 'layeredWarpText'];
 const backgroundEffectNames = ['imageCollage', 'perspectiveTunnelCollage', 'fallingPolaroidsCollage', 'blackBackground', 'holdStrobeEffect'];
-const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit'];
+const postEffectNames = ['passThrough', 'postLiquidDisplace', 'rgbSplit',    'filmGrain', 'scanLines'];
 let lastSwitchTime = 0;
 let effectSequence = [];
 let currentEffectCue = null;
@@ -198,25 +183,18 @@ function animate() {
     const now = performance.now();
     let elapsedSeconds = (now - startTime) / 1000;
 
-    // --- NEW: Loop Detection and Reset Logic ---
-    // Check if the audio buffer exists and if the song has completed a loop
-    // audioBuffer.duration
+    // Reset the start time if the audio has finished playing
     if (audioBuffer && elapsedSeconds >= audioBuffer.duration + 10) {
         startTime = now;      // Reset the main timer to the current moment
         elapsedSeconds = 0;   // Reset elapsed time for the current frame
         nextOnsetIndex = 0;   // Reset the beat tracker
         playAudio(); // Add this line to restart the audio
     }
-    // --- END NEW ---
 
-    // --- NEW: Add Mouse Smoothing / Easing ---
-    // The smoothed mouse position gently "chases" the actual cursor position.
-    // A smaller easing factor (e.g., 0.05) creates more lag.
+    // Update the physical mouse position based on the real cursor
     const easingFactor = 0.08;
     mouse.x += (physicalMouse.x - mouse.x) * easingFactor;
     mouse.y += (physicalMouse.y - mouse.y) * easingFactor;
-
-    // --- (The rest of the animate function remains exactly the same) ---
 
     // Onset Detection Logic
     onsetPulse += (pulseTarget - onsetPulse) * 0.2;
@@ -242,7 +220,7 @@ function animate() {
         lastLyricChangeTime = now;
     }
 
-    // Replace with this updated block
+    // --- Effect Sequence Logic ---
     const activeCue = effectSequence.find(cue => elapsedSeconds >= (cue.startTime / 1000) && elapsedSeconds <= (cue.endTime / 1000));
     if (activeCue && activeCue !== currentEffectCue) {
         currentEffectCue = activeCue;
@@ -261,7 +239,7 @@ function animate() {
             }
         }
 
-        // --- Effect switching logic (unchanged) ---
+        
         const fgName = parts[0];
         const bgName = parts[1];
         switchEffects(bgName, fgName);
@@ -269,7 +247,6 @@ function animate() {
 
     // RENDER PIPELINE
     const dpr = Math.min(window.devicePixelRatio || 1, maxDPR); // Using our capped DPR
-    // const dpr = window.devicePixelRatio || 1;
     
     const interactionCoords = {
         x: mouse.x * dpr,
@@ -299,12 +276,6 @@ function animate() {
     compositeCtx.globalAlpha = fadeInOpacity;
     compositeCtx.drawImage(foregroundCanvas, 0, 0); 
     
-    // compositeCtx.globalAlpha = 1.0; 
-    
-    // compositeCtx.globalCompositeOperation = 'screen';
-    // compositeCtx.drawImage(backgroundCanvas, 0, 0);
-    // compositeCtx.globalCompositeOperation = 'source-over';
-
     compositeCtx.globalAlpha = 1.0; // Ensure full opacity
     compositeCtx.drawImage(backgroundCanvas, 0, 0);
 

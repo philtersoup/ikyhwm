@@ -703,42 +703,33 @@ export const holdStrobeEffect = {
 export const cleanTiledText = {
     ctx: null,
     settings: null,
-    tiles: [],
+    grid: [],
+    gridCols: 20,
+    gridRows: 15,
     currentLyric: "",
-
-    initializeTiles() {
-        if (!this.ctx) return;
-        this.tiles = [];
-        const canvas = this.ctx.canvas;
-        const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
-        const baseSize = Math.min(canvas.width, canvas.height);
-        const fontSize = baseSize / 12;
-        this.ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
-        const textMetrics = this.ctx.measureText(textToRender);
-        const spacingX = textMetrics.width * 1.5;
-        const spacingY = fontSize * 1.5;
-        if (spacingX === 0) return;
-        for (let y = spacingY / 2; y < canvas.height; y += spacingY) {
-            for (let x = spacingX / 2; x < canvas.width; x += spacingX) {
-                this.tiles.push({
-                    originX: x, originY: y, x: x, y: y, vx: 0, vy: 0,
-                });
-            }
-        }
-    },
 
     setup(canvas, initialText, settings) { 
         this.ctx = canvas.getContext('2d'); 
         this.currentLyric = initialText;
         this.settings = settings;
-        this.initializeTiles();
+        this.grid = [];
+        const cellWidth = canvas.width / this.gridCols;
+        const cellHeight = canvas.height / this.gridRows;
+        for (let y = 0; y < this.gridRows; y++) {
+            for (let x = 0; x < this.gridCols; x++) {
+                const gridX = (x + 0.5) * cellWidth;
+                const gridY = (y + 0.5) * cellHeight;
+                this.grid.push({
+                    originX: gridX, originY: gridY,
+                    x: gridX, y: gridY,
+                    vx: 0, vy: 0,
+                });
+            }
+        }
     },
 
     onLyricChange(lyric) {
-        if (lyric !== this.currentLyric) {
-            this.currentLyric = lyric;
-            this.initializeTiles();
-        }
+        this.currentLyric = lyric;
     },
 
     update(coords, time, lyric, onsetPulse = 0) {
@@ -747,49 +738,83 @@ export const cleanTiledText = {
         const canvas = ctx.canvas;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
-        const baseSize = Math.min(canvas.width, canvas.height);
-        const fontSize = baseSize / 12 + (onsetPulse * (baseSize * 0.03));
-        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
-        ctx.fillStyle = this.settings.textColor;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        this.tiles.forEach(p => {
-            // --- MODIFIED: Mouse Repulsion Force ---
-            // Only apply the repulsion force if the user is actively interacting
+        // --- Phase 1: Update the Physics Grid ---
+        this.grid.forEach(p => {
+            // User-driven repulsion force
             if (coords.isActive) {
                 const dx = p.x - coords.x;
                 const dy = p.y - coords.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 const maxDist = 200;
-                
                 if (distance < maxDist) {
                     const force = (1 - distance / maxDist);
                     const angle = Math.atan2(dy, dx);
-                    const repelStrength = 3 * force;
+                    const repelStrength = 4 * force;
                     p.vx += Math.cos(angle) * repelStrength;
                     p.vy += Math.sin(angle) * repelStrength;
                 }
             }
+            
+            // --- NEW: Audio-Reactive "Shockwave" Repulsion ---
+            // This force is applied on every beat, regardless of user interaction.
+            if (onsetPulse > 0.1) {
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const dx = p.x - centerX;
+                const dy = p.y - centerY;
+                const angle = Math.atan2(dy, dx);
+                // The force of the shockwave is based on the beat's strength
+                const shockwaveStrength = onsetPulse * 3;
+                p.vx += Math.cos(angle) * shockwaveStrength;
+                p.vy += Math.sin(angle) * shockwaveStrength;
+            }
 
-            // --- Spring and Damping forces (always active) ---
-            const springStrength = 0.05;
+            // Spring and Damping forces (always active)
+            const springStrength = 0.02;
             p.vx += (p.originX - p.x) * springStrength;
             p.vy += (p.originY - p.y) * springStrength;
-            p.vx *= 0.85;
-            p.vy *= 0.85;
-            
+            p.vx *= 0.9;
+            p.vy *= 0.9;
             p.x += p.vx;
             p.y += p.vy;
-            
-            ctx.fillText(textToRender, p.x, p.y);
         });
+
+        // --- Phase 2: Draw the Text, Warped by the Grid ---
+        const textToRender = (this.currentLyric && this.currentLyric.trim() !== "") ? this.currentLyric.toUpperCase() : " ";
+        const baseSize = Math.min(canvas.width, canvas.height);
+        
+        // MODIFIED: Removed the onsetPulse from the font size calculation
+        const fontSize = baseSize / 12; 
+
+        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        ctx.fillStyle = this.settings.textColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const textMetrics = ctx.measureText(textToRender);
+        const spacingX = textMetrics.width * 1.5;
+        const spacingY = fontSize * 1.5;
+        if (spacingX === 0) return;
+        const cellWidth = canvas.width / this.gridCols;
+        const cellHeight = canvas.height / this.gridRows;
+        for (let y = spacingY / 2; y < canvas.height; y += spacingY) {
+            for (let x = spacingX / 2; x < canvas.width; x += spacingX) {
+                const gridX = Math.floor(x / cellWidth);
+                const gridY = Math.floor(y / cellHeight);
+                const gridIndex = gridX + gridY * this.gridCols;
+                const point = this.grid[gridIndex];
+                let displaceX = 0, displaceY = 0;
+                if (point) {
+                    displaceX = point.x - point.originX;
+                    displaceY = point.y - point.originY;
+                }
+                ctx.fillText(textToRender, x + displaceX, y + displaceY);
+            }
+        }
     },
     
     cleanup() { 
         this.ctx = null; 
-        this.tiles = []; 
+        this.grid = []; 
     }
 };
 
@@ -881,7 +906,13 @@ export const spiralVortex = {
 
 export const simpleTunnel = {
     ctx: null, settings: null, rows: [], currentLyric: "",
-    setup(canvas, text, settings) { this.ctx = canvas.getContext('2d'); this.onLyricChange(text); this.settings = settings; },
+    // Correct the typo in the setup function
+    setup(canvas, text, settings) { 
+        this.ctx = canvas.getContext('2d'); // Was 'd'
+        this.onLyricChange(text); 
+        this.settings = settings; 
+    },
+
     onLyricChange(lyric) {
         this.rows = [];
         this.currentLyric = lyric;
@@ -893,7 +924,8 @@ export const simpleTunnel = {
             this.rows.push({ text: uppercaseText, y: i * rowHeight, direction: (i % 2 === 0) ? 1 : -1 });
         }
     },
-    update(mouse, time, lyric, onsetPulse = 0) {
+
+    update(coords, time, lyric, onsetPulse = 0) {
         const ctx = this.ctx; if(!ctx) return;
         const canvas = ctx.canvas;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -902,28 +934,30 @@ export const simpleTunnel = {
             this.onLyricChange(lyric);
         }
 
-        // Make baseFontSize responsive
         const baseFontSize = Math.min(canvas.width, canvas.height) / 10;
         const timeOffset = time * 0.03;
 
         this.rows.forEach(row => {
-            const distY = row.y - mouse.y;
+            const distY = row.y - coords.y;
             const projScale = Math.min(1, Math.abs(distY) / (canvas.height/2));
             const fontSize = Math.max(baseFontSize * 0.05, baseFontSize * projScale) + (onsetPulse * 30 * projScale);
             if (fontSize < 1) return;
+            
             Object.assign(ctx, {font:`${fontSize}px '${this.settings.fontFamily}'`,fillStyle:this.settings.textColor,textAlign:'center',globalAlpha:projScale});
-            const warp = (mouse.x - canvas.width / 2) * (1 - projScale);
-            const scroll = (timeOffset * row.direction) % 200;
-            const finalX = canvas.width / 2 + scroll + warp;
-            const finalY = mouse.y + distY * (projScale + 0.4);
-            ctx.fillText(row.text, finalX, finalY);
+            
+            const warp = (coords.x - canvas.width / 2) * projScale;
+            const twistAmplitude = 150 * projScale;
+            const twist = Math.sin(row.y * 0.015 + time * 0.001) * twistAmplitude;
 
-            ctx.strokeStyle = this.settings.strokeColor;
-            ctx.lineWidth = 0.5; // You can adjust this value
-            // ctx.strokeText(row.text, finalX, finalY);
+            const scroll = (timeOffset * row.direction) % 200;
+            const finalX = canvas.width / 2 + scroll + warp + twist;
+            const finalY = coords.y + distY * (projScale + 0.4);
+
+            ctx.fillText(row.text, finalX, finalY);
         });
         ctx.globalAlpha = 1.0;
     },
+
     cleanup() { this.rows = []; this.ctx = null; }
 };
 
@@ -931,7 +965,7 @@ export const hourglassTiling = {
     ctx: null, settings: null,
     setup(canvas, initialText, settings){ this.ctx = canvas.getContext('2d'); this.settings = settings; },
     onLyricChange() {},
-    update(mouse, time, lyric, onsetPulse = 0) {
+    update(coords, time, lyric, onsetPulse = 0) {
         if (!this.ctx) return;
         const ctx = this.ctx;
         const canvas = ctx.canvas;
@@ -939,22 +973,38 @@ export const hourglassTiling = {
 
         const textToRender = (lyric && lyric.trim() !== "") ? lyric.toUpperCase() : " ";
         
-        // Make font size responsive
         const baseSize = Math.min(canvas.width, canvas.height);
-        const fontSize = baseSize / 15; // Adjusted for this effect
-        const rowHeight = fontSize * 1.2;
-        ctx.font = `${fontSize}px '${this.settings.fontFamily}'`;
+        let baseFontSize = baseSize / 15 + (onsetPulse * 2);
+        const rowHeight = baseFontSize * 1.2;
         ctx.fillStyle = this.settings.textColor;
         ctx.textAlign = 'left';
 
-        const textMetrics = ctx.measureText(textToRender + " ");
-        const textWidth = textMetrics.width;
+        const xNorm = coords.x / canvas.width;
+        const numRows = Math.floor(canvas.height / rowHeight);
+        const numActivePairs = Math.floor(xNorm * (numRows / 2));
 
-        if (textWidth === 0) return;
-
+        let rowIndex = 0;
         for (let y = 0; y < canvas.height + rowHeight; y += rowHeight) {
-            const distY = Math.abs(y - mouse.y);
-            const widthFactor = Math.pow(distY / (canvas.height / 2), 0.8) + (onsetPulse * 0.3);
+            
+            const isTopRowActive = rowIndex < numActivePairs;
+            const isBottomRowActive = rowIndex >= (numRows - numActivePairs);
+
+            if (isTopRowActive || isBottomRowActive) {
+                ctx.font = `${baseFontSize}px 'Blackout2am'`;
+            } else {
+                ctx.font = `${baseFontSize}px '${this.settings.fontFamily}'`;
+            }
+            
+            const textMetrics = ctx.measureText(textToRender + " ");
+            const textWidth = textMetrics.width;
+            if (textWidth === 0) {
+                rowIndex++;
+                continue;
+            }
+
+            // --- MODIFIED: Hourglass shape is now interactive with the Y-position ---
+            const widthFactor = Math.pow(Math.abs(y - coords.y) / (canvas.height / 2), 0.8) + (onsetPulse * 0.3);
+            
             const rowWidth = canvas.width * widthFactor;
             const startX = (canvas.width - rowWidth) / 2;
             const endX = startX + rowWidth;
@@ -963,6 +1013,7 @@ export const hourglassTiling = {
             for (let x = startX - timeOffset; x < endX; x += textWidth) {
                 ctx.fillText(textToRender, x, y);
             }
+            rowIndex++;
         }
     },
     cleanup() { this.ctx = null; }

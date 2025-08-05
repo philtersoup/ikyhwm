@@ -1,5 +1,15 @@
 const BASE_URL = 'https://pub-9da94effa96f44bb8d6f4ff32e9907a6.r2.dev'; 
 // const BASE_URL = 'assets'; 
+// --- Smart Cache Busting ---
+// This checks if we are on the local server.
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+// This is a static version for your live site. Increment it when you deploy.
+const VERSION = '1.0.2'; 
+
+// This automatically chooses the cache-busting method.
+const CACHE_BUSTER = IS_LOCAL ? new Date().getTime() : VERSION;
+
 let maxDPR = 1.0;
 
 import { holdStrobeEffect, blackBackground, imageCollage, perspectiveTunnelCollage, fallingPolaroidsCollage, 
@@ -18,8 +28,8 @@ const mediaManager = {
         'DSCF7127.webp', 'DSCF8082.webp', 'DSCF8084.webp', 'DSCF8123.webp',
         'DSCF8138.webp', 'DSCF8153.webp', 'DSCF8191.webp', 'DSCF8192.webp',
         'DSCF8196.webp', 'DSCF8226.webp', 'DSCF8276.webp', 'DSCF8278.webp',
-        'IKYHWM_FINAL.webp'
-    ].map(filename => `${BASE_URL}/images/${filename}`),
+        'IKYHWM_FINAL_2.webp'
+    ].map(filename => `${BASE_URL}/images/${filename}?v=${CACHE_BUSTER}`),
     async load(updateProgress) {
         const imagePromises = this.imageUrls.map(url => 
             new Promise((resolve, reject) => {
